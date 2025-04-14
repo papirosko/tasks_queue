@@ -1,5 +1,6 @@
 .idea
-.eslintrc.cjs
+eslint.config.mjs
+migration.sql
 test
 jest.config.js
 package-lock.json
