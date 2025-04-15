@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "module": "ESNext",
-    "declaration": true,
+    "declaration": false,
     "strict": true,
     "baseUrl": "./",
     "outDir": "dist",
-    "removeComments": true,
+    "removeComments": false,
     "experimentalDecorators": true,
     "esModuleInterop": true,
     "target": "ESNext",
