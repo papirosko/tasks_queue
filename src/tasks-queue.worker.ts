@@ -5,7 +5,7 @@ import { MetricsService } from "application-metrics";
 import { TasksPipeline } from "./tasks-pipeline.js";
 import { ScheduledTask } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
-import { TimeUtils } from "./time-utils";
+import { TimeUtils } from "./time-utils.js";
 
 const logger = log4js.getLogger("TasksQueueWorker");
 

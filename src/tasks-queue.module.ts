@@ -15,7 +15,7 @@ import {
 } from "./tasks-queue-async-options.js";
 import { Type } from "@nestjs/common/interfaces";
 import { ModuleRef } from "@nestjs/core";
-import { TimeUtils } from "./time-utils";
+import { TimeUtils } from "./time-utils.js";
 
 @Module({})
 export class TasksQueueModule

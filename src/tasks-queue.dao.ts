@@ -11,7 +11,7 @@ import type {
   SchedulePeriodicTaskDetails,
 } from "./tasks-model.js";
 import { Metric } from "application-metrics";
-import { TimeUtils } from "./time-utils";
+import { TimeUtils } from "./time-utils.js";
 
 export class TasksQueueDao {
   constructor(private readonly pool: pg.Pool) {}

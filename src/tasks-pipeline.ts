@@ -1,7 +1,7 @@
 import { option, Option } from "scats";
 import log4js from "log4js";
 import { ScheduledTask } from "./tasks-model.js";
-import { TimeUtils } from "./time-utils";
+import { TimeUtils } from "./time-utils.js";
 
 const defaultLoopInterval = TimeUtils.minute;
 
