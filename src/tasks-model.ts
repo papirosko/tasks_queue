@@ -38,7 +38,7 @@ export interface ScheduleTaskDetails {
   queue: string;
   /**
    * Maximum amount of the time in milliseconds, after which the task will be considered as 'stalled'.
-   * If not set, task will never be marked as 'stalled' and will never be requeued.
+   * If not set, the default value 1 hour will be used.
    */
   timeout?: number;
   /**
@@ -54,7 +54,7 @@ export interface ScheduleTaskDetails {
   /**
    * Task details, that will be passed to a queue worker upon starting working on this task.
    */
-  payload: object;
+  payload?: object;
   /**
    * Maximum number of attempts for the task to be executed in case the task was failed or stalled.
    * If not set, will use default value 1.
@@ -80,7 +80,7 @@ export interface ScheduleTaskDetails {
    * - 'linear': delay increases linearly with each attempt (`backoff * attempt`).
    * - 'exponential': delay increases exponentially (`backoff * 2^attempt`).
    *
-   * If not set, defaults to 'exponential'.
+   * If not set, defaults to 'linear'.
    */
   backoffType?: BackoffType;
 }
@@ -113,7 +113,7 @@ export interface ScheduledTask {
   /**
    * Task details, that were specified during task creation..
    * */
-  payload: object;
+  payload?: object;
   /**
    * The name of the queue tasks belongs to.
    */

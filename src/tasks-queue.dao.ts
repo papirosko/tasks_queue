@@ -48,7 +48,7 @@ export class TasksQueueDao {
           now,
           TaskStatus.pending,
           option(task.priority).getOrElseValue(0),
-          task.payload,
+          option(task.payload).orNull,
           option(task.timeout).getOrElseValue(TimeUtils.hour),
           option(task.retries).getOrElseValue(1),
           option(task.startAfter).orNull,
@@ -84,7 +84,7 @@ export class TasksQueueDao {
           now,
           TaskStatus.pending,
           option(task.priority).getOrElseValue(0),
-          task.payload,
+          option(task.payload).orNull,
           option(task.timeout).getOrElseValue(TimeUtils.hour),
           option(task.retries).getOrElseValue(1),
           option(task.startAfter).getOrElseValue(now),
@@ -161,7 +161,7 @@ export class TasksQueueDao {
       return Collection.from(res.rows).headOption.map((r) => {
         return {
           id: r["id"],
-          payload: r["payload"],
+          payload: option(r["payload"]).orUndefined,
           queue: r["queue"],
           repeatType: option(r["repeat_type"]).orUndefined,
         } as ScheduledTask;
