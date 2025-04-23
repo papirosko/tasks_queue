@@ -8,3 +8,4 @@ tsconfig.json
 tsconfig-eslint.json
 coverage
 src
+docs

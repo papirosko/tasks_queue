@@ -61,6 +61,8 @@ export abstract class TasksWorker {
      * @param payload - The data provided to the task.
      * @param finalStatus - Final status of the task: `'pending'` if it will be retried,
      *                      or `'error'` if it won't be retried anymore.
+     * @param error - the error, raised during the task execution.
+
      */
-    failed(taskId: number, payload: any, finalStatus: TaskStatus): void {}
+    failed(taskId: number, payload: any, finalStatus: TaskStatus, error: any): void {}
 }

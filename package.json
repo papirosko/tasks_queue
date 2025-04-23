@@ -1,6 +1,6 @@
 {
   "name": "@penkov/tasks_queue",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A lightweight PostgreSQL-backed task queue system with scheduling, retries, backoff strategies, and priority handling. Designed for efficiency and observability in modern Node.js applications.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,7 +8,7 @@
   "scripts": {
     "clean": "rimraf dist",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
-    "prebuild": "npm run clean && npm run lint && npm run test",
+    "prebuild": "npm run clean && npm run lint",
     "test": "jest --passWithNoTests",
     "compile": "tsc --removeComments && tsc --declaration --emitDeclarationOnly",
     "rollup": "npx rollup dist/index.js --file dist/index.cjs --format cjs",

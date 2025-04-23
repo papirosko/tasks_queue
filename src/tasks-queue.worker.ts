@@ -79,7 +79,7 @@ export class TasksQueueWorker {
             (e as any)["message"] || e,
           );
           Try(() =>
-            worker.failed(task.id, task.payload, finalStatus),
+            worker.failed(task.id, task.payload, finalStatus, e),
           ).tapFailure((e) =>
             logger.warn(
               `Failed to invoke 'failed' callback for task (id=${task.id}) in queue=${task.queue}`,
