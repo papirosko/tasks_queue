@@ -309,7 +309,7 @@ export class TasksQueueDao {
                                                                       WHEN 'constant' THEN backoff
                                                                       WHEN 'linear' THEN (backoff * attempt)
                                                                       WHEN 'exponential'
-                                                                          THEN (backoff * POWER(2, attempt))
+                                                                          THEN (backoff * POWER(2, (attempt - 1)))
                                                                       ELSE backoff
                                                                       END
                                                                   ) * interval '1 millisecond'
