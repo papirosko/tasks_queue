@@ -90,6 +90,24 @@ export enum TaskPeriodType {
   fixed_delay = "fixed_delay",
 }
 
+/**
+ * Defines the strategy for handling missed periodic task executions
+ * (e.g., when the server is down or the task couldn't run on time).
+ */
+export enum MissedRunStrategy {
+  /**
+   * Execute the task once for every missed interval since the original schedule.
+   * Useful when every run is important (e.g., collecting metrics).
+   */
+  catch_up = "catch_up",
+
+  /**
+   * Execute the task once immediately and schedule the task for the next appropriate time
+   * based on the original interval (e.g., every hour at 15:00, 16:00, etc.).
+   */
+  skip_missed = "skip_missed",
+}
+
 export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
   /**
    * The unique name for the periodic task for the deduplication.
@@ -100,6 +118,15 @@ export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
    * The interval, after which the task should be processed again.
    */
   period: number;
+
+  /**
+   * Strategy that defines how to handle missed executions for a periodic task
+   * when the server is down or delayed. Default value: 'skip_missed'
+   *
+   * - 'catch_up' — execute the task once for each missed interval since its creation time.
+   * - 'skip_missed' — run once immediately and schedule the next one based on the original schedule.
+   */
+  missedRunStrategy?: MissedRunStrategy;
 }
 
 /**

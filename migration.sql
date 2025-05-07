@@ -1,23 +1,25 @@
 create table tasks_queue
 (
-    id              serial primary key,
-    queue           varchar(50)                                                                   not null,
-    created         timestamp                                                                     not null default now(),
-    started         timestamp                                                                              default null,
-    finished        timestamp                                                                              default null,
-    status          varchar(15) check (status in ('pending', 'in_progress', 'finished', 'error')) not null default 'pending',
-    priority        int2                                                                          not null default 0,
-    error           text                                                                                   default null,
-    backoff         int8                                                                                   default 60000,
-    backoff_type    varchar(11) check (backoff_type in ('constant', 'linear', 'exponential'))     not null default 'linear',
-    timeout         int8                                                                          not null default 3600000,
-    name            varchar(20) unique nulls distinct                                                      default null,
-    start_after     timestamp                                                                              default null,
-    repeat_interval int8                                                                                   default null,
-    repeat_type     varchar(11) check (repeat_type in ('fixed_rate', 'fixed_delay'))                       default null,
-    max_attempts    int4                                                                          not null default 1,
-    attempt         int4                                                                          not null default 0,
-    payload         jsonb                                                                                  default null
+    id                   serial primary key,
+    queue                varchar(50)                                                                   not null,
+    created              timestamp                                                                     not null default now(),
+    initial_start        timestamp                                                                     not null default now(),
+    started              timestamp                                                                              default null,
+    finished             timestamp                                                                              default null,
+    status               varchar(15) check (status in ('pending', 'in_progress', 'finished', 'error')) not null default 'pending',
+    missed_runs_strategy varchar(30) check (missed_runs_strategy in ('catch_up', 'skip_missed'))                default 'skip_missed',
+    priority             int2                                                                          not null default 0,
+    error                text                                                                                   default null,
+    backoff              int8                                                                                   default 60000,
+    backoff_type         varchar(11) check (backoff_type in ('constant', 'linear', 'exponential'))     not null default 'linear',
+    timeout              int8                                                                          not null default 3600000,
+    name                 varchar(20) unique nulls distinct                                                      default null,
+    start_after          timestamp                                                                              default null,
+    repeat_interval      int8                                                                                   default null,
+    repeat_type          varchar(11) check (repeat_type in ('fixed_rate', 'fixed_delay'))                       default null,
+    max_attempts         int4                                                                          not null default 1,
+    attempt              int4                                                                          not null default 0,
+    payload              jsonb                                                                                  default null
 );
 CREATE INDEX ON tasks_queue (status);
 CREATE INDEX ON tasks_queue (queue);
@@ -48,3 +50,7 @@ comment on column tasks_queue.repeat_type is 'Defines how the next execution tim
 comment on column tasks_queue.max_attempts is 'The maximum number of attempts for a task to be processed in case of failures';
 comment on column tasks_queue.attempt is 'The number of attempts the task was fetched for processing';
 comment on column tasks_queue.payload is 'The optional data for the worker, that will process this task';
+COMMENT ON COLUMN tasks_queue.missed_runs_strategy is
+    'Defines how missed runs of periodic tasks should be handled. '
+        'Options: catch_up (run all missed intervals), '
+        'skip_missed (schedule next future run)';

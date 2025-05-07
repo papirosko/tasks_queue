@@ -1,14 +1,15 @@
 import { Collection, HashSet, none, option, Option } from "scats";
 import pg, { PoolClient } from "pg";
+import type {
+  SchedulePeriodicTaskDetails,
+  ScheduleTaskDetails,
+} from "./tasks-model.js";
 import {
   BackoffType,
+  MissedRunStrategy,
   ScheduledTask,
   TaskPeriodType,
   TaskStatus,
-} from "./tasks-model.js";
-import type {
-  ScheduleTaskDetails,
-  SchedulePeriodicTaskDetails,
 } from "./tasks-model.js";
 import { Metric } from "application-metrics";
 import { TimeUtils } from "./time-utils.js";
@@ -39,9 +40,9 @@ export class TasksQueueDao {
     const now = new Date();
     return await this.withClient(async (cl) => {
       const res = await cl.query(
-        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts, start_after, backoff,
-                                          backoff_type)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
+                                          start_after, initial_start_after, backoff, backoff_type)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10)
                  returning id`,
         [
           task.queue,
@@ -74,9 +75,10 @@ export class TasksQueueDao {
     const now = new Date();
     return await this.withClient(async (cl) => {
       const res = await cl.query(
-        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts, start_after, name,
-                                          repeat_interval, repeat_type, backoff, backoff_type)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
+                                          start_after, initial_start, name,
+                                          repeat_interval, repeat_type, backoff, backoff_type, missed_runs_strategy)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14)
                  on conflict (name) do nothing
                  returning id`,
         [
@@ -93,6 +95,9 @@ export class TasksQueueDao {
           periodType,
           option(task.backoff).getOrElseValue(TimeUtils.minute),
           option(task.backoffType).getOrElseValue(BackoffType.linear),
+          option(task.missedRunStrategy).getOrElseValue(
+            MissedRunStrategy.skip_missed,
+          ),
         ],
       );
       return Collection.from(res.rows).headOption.map((r) => r.id as number);
@@ -240,26 +245,30 @@ export class TasksQueueDao {
    */
   @Metric()
   async rescheduleIfPeriodic(taskId: number): Promise<void> {
-    const now = new Date();
     await this.withClient(async (cl) => {
+      const now = new Date();
       await cl.query(
         `
-                    update tasks_queue
-                    set status      = $1,
-                        start_after = case
-                                          when repeat_type = '${TaskPeriodType.fixed_rate}' then
-                                              coalesce(start_after, started) + (repeat_interval || ' millisecond')::interval
-                                          when repeat_type = '${TaskPeriodType.fixed_delay}'
-                                              then cast($2 as timestamp) + (repeat_interval || ' millisecond')::interval
-                                          else null
-                            end,
+                    UPDATE tasks_queue
+                    SET status      = $1,
+                        start_after = CASE
+                                          WHEN repeat_type = 'fixed_rate' AND missed_runs_strategy = 'catch_up' THEN
+                                              start_after + (repeat_interval * interval '1 millisecond')
+                                          WHEN repeat_type = 'fixed_rate' AND missed_runs_strategy = 'skip_missed' THEN
+                                              initial_start +
+                                              (CEIL(EXTRACT(EPOCH FROM ($2 - initial_start)) * 1000 / repeat_interval) *
+                                               repeat_interval * interval '1 millisecond')
+                                          ELSE
+                                              $2 + (repeat_interval * interval '1 millisecond')
+                            END,
                         finished    = $2,
-                        error       = null,
+                        error       = NULL,
                         attempt     = 0
-                    where id = $3
-                      and status = $4
-                      and repeat_interval is not null
-                      and repeat_type in ('${TaskPeriodType.fixed_rate}', '${TaskPeriodType.fixed_delay}')
+                    WHERE id = $3
+                      AND status = $4
+                      AND repeat_interval IS NOT NULL
+                      AND missed_runs_strategy IS NOT NULL
+                      AND repeat_type IN ('${TaskPeriodType.fixed_rate}', '${TaskPeriodType.fixed_delay}');
                 `,
         [TaskStatus.pending, now, taskId, TaskStatus.in_progress],
       );
