@@ -41,7 +41,7 @@ export class TasksQueueDao {
     return await this.withClient(async (cl) => {
       const res = await cl.query(
         `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
-                                          start_after, initial_start_after, backoff, backoff_type)
+                                          start_after, initial_start, backoff, backoff_type)
                  values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10)
                  returning id`,
         [
