@@ -42,7 +42,7 @@ export class TasksQueueDao {
       const res = await cl.query(
         `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
                                           start_after, initial_start, backoff, backoff_type)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                  returning id`,
         [
           task.queue,
@@ -53,6 +53,7 @@ export class TasksQueueDao {
           option(task.timeout).getOrElseValue(TimeUtils.hour),
           option(task.retries).getOrElseValue(1),
           option(task.startAfter).orNull,
+          option(task.startAfter).getOrElseValue(now),
           option(task.backoff).getOrElseValue(TimeUtils.minute),
           option(task.backoffType).getOrElseValue(BackoffType.linear),
         ],
