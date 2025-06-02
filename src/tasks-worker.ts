@@ -1,6 +1,6 @@
 /* eslint-disable */
 
-import { TaskStatus } from './tasks-model.js';
+import {TaskContext, TaskStatus } from './tasks-model.js';
 
 /**
  * Base class for a worker that processes tasks from a queue.
@@ -24,10 +24,7 @@ export abstract class TasksWorker {
      * @param context - the execution details
      * @see TaskFailed
      */
-    abstract process(payload: any, context: {
-        currentAttempt: number,
-        maxAttempts: number,
-    }): Promise<void>;
+    abstract process(payload: any, context: TaskContext): Promise<void>;
 
     /**
      * Called right before the task is processed.

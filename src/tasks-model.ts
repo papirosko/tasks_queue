@@ -169,3 +169,8 @@ export class TaskFailed extends Error {
     super(message);
   }
 }
+
+export interface TaskContext {
+  currentAttempt: number;
+  maxAttempts: number;
+}
