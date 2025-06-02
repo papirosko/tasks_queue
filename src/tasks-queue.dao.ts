@@ -160,7 +160,13 @@ export class TasksQueueDao {
                     attempt  = attempt + 1
                 FROM selected
                 WHERE tasks_queue.id = selected.id
-                RETURNING tasks_queue.id, tasks_queue.payload, tasks_queue.queue, tasks_queue.repeat_type;
+                RETURNING 
+                    tasks_queue.id, 
+                    tasks_queue.payload, 
+                    tasks_queue.queue,
+                    tasks_queue.repeat_type,
+                    tasks_queue.attempt,
+                    tasks_queue.max_attempts
             `;
 
       const res = await cl.query(query, params);
@@ -170,6 +176,8 @@ export class TasksQueueDao {
           payload: option(r["payload"]).orUndefined,
           queue: r["queue"],
           repeatType: option(r["repeat_type"]).orUndefined,
+          currentAttempt: r["attempt"],
+          maxAttempts: r["max_attempts"],
         } as ScheduledTask;
       });
     });
@@ -296,39 +304,45 @@ export class TasksQueueDao {
    *
    * @param taskId The ID of the task.
    * @param error The error message to store in the task's 'error' field.
+   * @param nextPayload Replaces task payload, if set
    * @returns The new status of the task after the update (`'pending'` or `'error'`).
    */
   @Metric()
-  async fail(taskId: number, error: string): Promise<TaskStatus> {
+  async fail(
+    taskId: number,
+    error: string,
+    nextPayload?: object,
+  ): Promise<TaskStatus> {
     const now = new Date();
 
     return await this.withClient(async (cl) => {
       const res = await cl.query(
         `
-                    UPDATE tasks_queue
-                    SET finished    = $1,
-                        error       = $2,
-                        status      = CASE
-                                          WHEN attempt < max_attempts THEN $3 -- pending
-                                          ELSE $4 -- error
-                            END,
-                        start_after = CASE
-                                          WHEN attempt < max_attempts THEN
-                                              $1::timestamp + (
-                                                                  CASE backoff_type
-                                                                      WHEN 'constant' THEN backoff
-                                                                      WHEN 'linear' THEN (backoff * attempt)
-                                                                      WHEN 'exponential'
-                                                                          THEN (backoff * POWER(2, (attempt - 1)))
-                                                                      ELSE backoff
-                                                                      END
-                                                                  ) * interval '1 millisecond'
-                                          ELSE NULL
-                            END
-                    WHERE id = $5
-                      AND status = $6
-                    returning status
-                `,
+            UPDATE tasks_queue
+            SET finished    = $1,
+                error       = $2,
+                status      = CASE
+                                  WHEN attempt < max_attempts THEN $3 -- pending
+                                  ELSE $4 -- error
+                    END,
+                start_after = CASE
+                                  WHEN attempt < max_attempts THEN
+                                      $1::timestamp + (
+                                                          CASE backoff_type
+                                                              WHEN 'constant' THEN backoff
+                                                              WHEN 'linear' THEN (backoff * attempt)
+                                                              WHEN 'exponential'
+                                                                  THEN (backoff * POWER(2, (attempt - 1)))
+                                                              ELSE backoff
+                                                              END
+                                                          ) * interval '1 millisecond'
+                                  ELSE NULL
+                    END,
+                payload     = $7
+            WHERE id = $5
+              AND status = $6
+            returning status
+        `,
         [
           now, // $1
           error, // $2
@@ -336,6 +350,7 @@ export class TasksQueueDao {
           TaskStatus.error, // $4
           taskId, // $5
           TaskStatus.in_progress, // $6
+          option(nextPayload).orNull, // $7
         ],
       );
       return Collection.from(res.rows)

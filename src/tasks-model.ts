@@ -149,4 +149,23 @@ export interface ScheduledTask {
    * The period type for the periodic tasks. Not set for regular task.
    */
   repeatType?: TaskPeriodType;
+
+  currentAttempt: number;
+  maxAttempts: number;
+}
+
+/**
+ * If this error is thrown from the process method of the task, then returned payload
+ * will be stored as a new task payload, replacing the previous one.
+ *
+ * This can be used to store additional task metadata for the special tasks, which
+ * provide their own task flow.
+ */
+export class TaskFailed extends Error {
+  constructor(
+    message: string,
+    readonly payload: object,
+  ) {
+    super(message);
+  }
 }

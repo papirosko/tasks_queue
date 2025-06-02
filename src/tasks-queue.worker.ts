@@ -3,7 +3,7 @@ import { TasksQueueDao } from "./tasks-queue.dao.js";
 import log4js from "log4js";
 import { MetricsService } from "application-metrics";
 import { TasksPipeline } from "./tasks-pipeline.js";
-import { ScheduledTask } from "./tasks-model.js";
+import { ScheduledTask, TaskFailed } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
 
@@ -60,7 +60,10 @@ export class TasksQueueWorker {
               e,
             ),
           );
-          await worker.process(task.payload);
+          await worker.process(task.payload, {
+            maxAttempts: task.maxAttempts,
+            currentAttempt: task.currentAttempt,
+          });
           if (option(task.repeatType).isEmpty) {
             await this.tasksQueueDao.finish(task.id);
           } else {
@@ -77,6 +80,7 @@ export class TasksQueueWorker {
           const finalStatus = await this.tasksQueueDao.fail(
             task.id,
             (e as any)["message"] || e,
+            e instanceof TaskFailed ? e.payload : task.payload,
           );
           Try(() =>
             worker.failed(task.id, task.payload, finalStatus, e),

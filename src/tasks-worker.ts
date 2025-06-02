@@ -16,9 +16,18 @@ export abstract class TasksWorker {
      * This method **must** be implemented by subclasses. It contains
      * the main logic that should be executed when the task is picked up.
      *
+     * If task is failed and an implementation requires to pass extra params to next attemts,
+     * then it should throw TaskFailed exception. The payload of the exception will replace
+     * the current task payload.
+     *
      * @param payload - The data provided to the task.
+     * @param context - the execution details
+     * @see TaskFailed
      */
-    abstract process(payload: any): Promise<void>;
+    abstract process(payload: any, context: {
+        currentAttempt: number,
+        maxAttempts: number,
+    }): Promise<void>;
 
     /**
      * Called right before the task is processed.
