@@ -81,14 +81,17 @@ export class TasksAuxiliaryWorker {
       .then((tasksCounts) => {
         this.queuesCounts = tasksCounts.groupBy((c) => c.queueName);
         tasksCounts.foreach((c) => {
-          MetricsService.gauge(`tasks_queue_${c.queueName}_${c.status}`, () => {
-            return this.queuesCounts
-              .get(c.queueName)
-              .getOrElseValue(Nil)
-              .find((c) => c.status === c.status)
-              .map((c) => c.count)
-              .getOrElseValue(0);
-          });
+          MetricsService.gauge(
+            `tasks_queue_${c.queueName}_${c.status}`.replace(/-.,:\/\\/g, "_"),
+            () => {
+              return this.queuesCounts
+                .get(c.queueName)
+                .getOrElseValue(Nil)
+                .find((c) => c.status === c.status)
+                .map((c) => c.count)
+                .getOrElseValue(0);
+            },
+          );
         });
       })
       .catch((e) => {
