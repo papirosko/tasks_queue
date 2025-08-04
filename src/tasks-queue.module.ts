@@ -16,7 +16,7 @@ import {
 import { Type } from "@nestjs/common/interfaces";
 import { ModuleRef } from "@nestjs/core";
 import { TimeUtils } from "./time-utils.js";
-import { ManageTasksQueueDao } from "./manage/manage-tasks-queue-dao.service";
+import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
 
 @Module({})
 export class TasksQueueModule
@@ -45,7 +45,7 @@ export class TasksQueueModule
             new TasksPoolsService(dao, opts.pools),
         },
       ],
-      exports: [TasksPoolsService, ManageTasksQueueDao],
+      exports: [TasksPoolsService, ManageTasksQueueService],
     };
   }
 

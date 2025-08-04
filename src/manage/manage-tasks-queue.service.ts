@@ -5,7 +5,7 @@ import { TaskStatus } from "../tasks-model";
 import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model";
 
 @Injectable()
-export class ManageTasksQueueDao {
+export class ManageTasksQueueService {
   constructor(@Inject() private readonly pool: pg.Pool) {}
 
   async findByStatus(params: {
