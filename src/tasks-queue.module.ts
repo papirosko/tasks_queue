@@ -39,7 +39,12 @@ export class TasksQueueModule
           useFactory: (opts: TasksQueueModuleOptions) =>
             new TasksQueueDao(opts.db),
         },
-        ManageTasksQueueService,
+        {
+          provide: ManageTasksQueueService,
+          inject: [TASKS_QUEUE_OPTIONS],
+          useFactory: (opts: TasksQueueModuleOptions) =>
+            new ManageTasksQueueService(opts.db),
+        },
         {
           provide: TasksPoolsService,
           inject: [TasksQueueDao, ManageTasksQueueService, TASKS_QUEUE_OPTIONS],
