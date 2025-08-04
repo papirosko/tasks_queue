@@ -17,6 +17,7 @@ import { Type } from "@nestjs/common/interfaces";
 import { ModuleRef } from "@nestjs/core";
 import { TimeUtils } from "./time-utils.js";
 import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
+import { identity, option } from "scats";
 
 @Module({})
 export class TasksQueueModule
@@ -38,11 +39,21 @@ export class TasksQueueModule
           useFactory: (opts: TasksQueueModuleOptions) =>
             new TasksQueueDao(opts.db),
         },
+        ManageTasksQueueService,
         {
           provide: TasksPoolsService,
-          inject: [TasksQueueDao, TASKS_QUEUE_OPTIONS],
-          useFactory: (dao: TasksQueueDao, opts: TasksQueueModuleOptions) =>
-            new TasksPoolsService(dao, opts.pools),
+          inject: [TasksQueueDao, ManageTasksQueueService, TASKS_QUEUE_OPTIONS],
+          useFactory: (
+            dao: TasksQueueDao,
+            manageService: ManageTasksQueueService,
+            opts: TasksQueueModuleOptions,
+          ) =>
+            new TasksPoolsService(
+              dao,
+              manageService,
+              option(opts.runAuxiliaryWorker).forall(identity),
+              opts.pools,
+            ),
         },
       ],
       exports: [TasksPoolsService, ManageTasksQueueService],

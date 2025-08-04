@@ -1,5 +1,5 @@
 import { TasksPool } from "./tasks-pool.js";
-import { Collection, HashMap, mutable, Option } from "scats";
+import { Collection, HashMap, mutable, none, Option, some } from "scats";
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import { TasksQueueService } from "./tasks-queue.service.js";
 import { TasksAuxiliaryWorker } from "./tasks-auxiliary-worker.js";
@@ -10,6 +10,7 @@ import {
   TaskPeriodType,
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
+import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
 
 export const DEFAULT_POOL = "default";
 const logger = log4js.getLogger("TasksPoolsService");
@@ -17,10 +18,12 @@ const logger = log4js.getLogger("TasksPoolsService");
 export class TasksPoolsService {
   private readonly pools: HashMap<string, TasksQueueService>;
   private readonly queuesPool = new mutable.HashMap<string, string>();
-  private readonly auxiliaryWorker: TasksAuxiliaryWorker;
+  private readonly auxiliaryWorker: Option<TasksAuxiliaryWorker>;
 
   constructor(
     private readonly dao: TasksQueueDao,
+    manageTasksQueueService: ManageTasksQueueService,
+    runAuxiliaryWorker: boolean,
     pools: TasksPool[] = [
       {
         name: DEFAULT_POOL,
@@ -36,18 +39,20 @@ export class TasksPoolsService {
     }
     this.pools = poolsCollection.toMap((p) => [
       p.name,
-      new TasksQueueService(dao, {
+      new TasksQueueService(dao, manageTasksQueueService, {
         concurrency: p.concurrency,
         runAuxiliaryWorker: false,
         loopInterval: p.loopInterval,
       }),
     ]);
-    this.auxiliaryWorker = new TasksAuxiliaryWorker(dao);
+    this.auxiliaryWorker = runAuxiliaryWorker
+      ? some(new TasksAuxiliaryWorker(dao, manageTasksQueueService))
+      : none;
   }
 
   start() {
     logger.info(`Starting TasksPoolsService with ${this.pools.size} pools`);
-    this.auxiliaryWorker.start();
+    this.auxiliaryWorker.foreach((w) => w.start());
     this.pools.values.foreach((p) => p.start());
   }
 
@@ -56,7 +61,7 @@ export class TasksPoolsService {
     try {
       await Promise.race([
         Promise.all([
-          this.auxiliaryWorker.stop(),
+          this.auxiliaryWorker.mapPromise((w) => w.stop()),
           this.pools.values.mapPromise((p) => p.stop()),
         ]),
         new Promise((_, reject) =>

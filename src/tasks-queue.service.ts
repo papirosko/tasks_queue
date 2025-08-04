@@ -9,6 +9,7 @@ import {
   TaskPeriodType,
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
+import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
 
 const logger = log4js.getLogger("TasksQueueService");
 
@@ -24,6 +25,7 @@ export class TasksQueueService {
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
+    manageTasksQueueService: ManageTasksQueueService,
     config: TasksQueueConfig,
   ) {
     this.worker = new TasksQueueWorker(
@@ -32,7 +34,9 @@ export class TasksQueueService {
       config.loopInterval,
     );
     if (config.runAuxiliaryWorker) {
-      this.auxiliaryWorker = some(new TasksAuxiliaryWorker(tasksQueueDao));
+      this.auxiliaryWorker = some(
+        new TasksAuxiliaryWorker(tasksQueueDao, manageTasksQueueService),
+      );
     } else {
       this.auxiliaryWorker = none;
     }

@@ -5,6 +5,7 @@ import { TasksPool } from "./tasks-pool.js";
 export interface TasksQueueModuleOptions {
   db: pg.Pool;
   pools: TasksPool[];
+  runAuxiliaryWorker?: boolean;
 }
 
 export const TASKS_QUEUE_OPTIONS = Symbol("TASKS_QUEUE_OPTIONS");
