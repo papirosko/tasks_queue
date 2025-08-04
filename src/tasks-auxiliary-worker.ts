@@ -82,7 +82,7 @@ export class TasksAuxiliaryWorker {
         this.queuesCounts = tasksCounts.groupBy((c) => c.queueName);
         tasksCounts.foreach((c) => {
           MetricsService.gauge(
-            `tasks_queue_${c.queueName}_${c.status}`.replace(/-.,:\/\\/g, "_"),
+            `tasks_queue_${c.queueName}_${c.status}`.replace(/[^a-zA-Z0-9_:]/g, "_"),
             () => {
               return this.queuesCounts
                 .get(c.queueName)
