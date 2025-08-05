@@ -1,6 +1,6 @@
 import pg from "pg";
 import { Collection, mutable, option } from "scats";
-import { TaskStatus } from "../tasks-model";
+import { TaskStatus } from "./tasks-model";
 import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model";
 
 export class ManageTasksQueueService {

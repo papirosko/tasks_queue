@@ -5,5 +5,5 @@ export * from "./tasks-queue.module.js";
 export * from "./tasks-queue.service.js";
 export * from "./tasks-queue-async-options.js";
 export * from "./tasks-worker.js";
-export * from "./manage/manage.model.js";
-export * from "./manage/manage-tasks-queue.service.js";
+export * from "./manage.model.js";
+export * from "./manage-tasks-queue.service.js";

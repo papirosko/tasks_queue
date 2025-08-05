@@ -10,7 +10,7 @@ import {
   TaskPeriodType,
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
-import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
+import { ManageTasksQueueService } from "./manage-tasks-queue.service";
 
 export const DEFAULT_POOL = "default";
 const logger = log4js.getLogger("TasksPoolsService");

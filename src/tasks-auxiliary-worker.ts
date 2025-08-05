@@ -1,9 +1,9 @@
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import log4js from "log4js";
 import { TimeUtils } from "./time-utils.js";
-import { ManageTasksQueueService } from "./manage/manage-tasks-queue.service";
+import { ManageTasksQueueService } from "./manage-tasks-queue.service";
 import { Collection, HashMap, Nil, option } from "scats";
-import { TasksCount } from "./manage/manage.model";
+import { TasksCount } from "./manage.model";
 import { MetricsService } from "application-metrics";
 
 const logger = log4js.getLogger("TasksAuxiliaryWorker");
