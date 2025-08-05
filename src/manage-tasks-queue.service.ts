@@ -1,7 +1,7 @@
 import pg from "pg";
 import { Collection, mutable, option } from "scats";
-import { TaskStatus } from "./tasks-model";
-import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model";
+import { TaskStatus } from "./tasks-model.js";
+import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model.js";
 
 export class ManageTasksQueueService {
   constructor(private readonly pool: pg.Pool) {}

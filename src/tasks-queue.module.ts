@@ -16,7 +16,7 @@ import {
 import { Type } from "@nestjs/common/interfaces";
 import { ModuleRef } from "@nestjs/core";
 import { TimeUtils } from "./time-utils.js";
-import { ManageTasksQueueService } from "./manage-tasks-queue.service";
+import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { identity, option } from "scats";
 
 @Module({})

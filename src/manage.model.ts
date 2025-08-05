@@ -5,7 +5,7 @@ import {
   MissedRunStrategy,
   TaskPeriodType,
   TaskStatus,
-} from "./tasks-model";
+} from "./tasks-model.js";
 
 export class TaskDto {
   constructor(
