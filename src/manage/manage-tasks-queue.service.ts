@@ -1,12 +1,10 @@
-import { Inject, Injectable } from "@nestjs/common";
 import pg from "pg";
 import { Collection, mutable, option } from "scats";
 import { TaskStatus } from "../tasks-model";
 import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model";
 
-@Injectable()
 export class ManageTasksQueueService {
-  constructor(@Inject() private readonly pool: pg.Pool) {}
+  constructor(private readonly pool: pg.Pool) {}
 
   async findByStatus(params: {
     status?: TaskStatus;
