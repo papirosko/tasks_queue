@@ -70,7 +70,9 @@ export class TasksQueueWorker {
             await this.tasksQueueDao.rescheduleIfPeriodic(task.id);
           }
           MetricsService.counter("tasks_queue_processed").inc();
-          Try(() => worker.completed(task.id, task.payload)).tapFailure((e) =>
+          (
+            await Try.promise(() => worker.completed(task.id, task.payload))
+          ).tapFailure((e) =>
             logger.warn(
               `Failed to invoke 'completed' callback for task (id=${task.id}) in queue=${task.queue}`,
               e,
@@ -82,8 +84,10 @@ export class TasksQueueWorker {
             (e as any)["message"] || e,
             e instanceof TaskFailed ? e.payload : task.payload,
           );
-          Try(() =>
-            worker.failed(task.id, task.payload, finalStatus, e),
+          (
+            await Try.promise(() =>
+              worker.failed(task.id, task.payload, finalStatus, e),
+            )
           ).tapFailure((e) =>
             logger.warn(
               `Failed to invoke 'failed' callback for task (id=${task.id}) in queue=${task.queue}`,

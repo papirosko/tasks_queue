@@ -50,7 +50,9 @@ export abstract class TasksWorker {
      * @param taskId - The unique identifier of the task.
      * @param payload - The data provided to the task.
      */
-    completed(taskId: number, payload: any): void {}
+    completed(taskId: number, payload: any): Promise<void> {
+        return Promise.resolve();
+    }
 
     /**
      * Called if the task has failed.
@@ -70,5 +72,7 @@ export abstract class TasksWorker {
      * @param error - the error, raised during the task execution.
 
      */
-    failed(taskId: number, payload: any, finalStatus: TaskStatus, error: any): void {}
+    failed(taskId: number, payload: any, finalStatus: TaskStatus, error: any): Promise<void> {
+        return Promise.resolve();
+    }
 }
