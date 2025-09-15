@@ -75,7 +75,7 @@ export class TasksQueueService {
   }
 
   async stop() {
-    await this.auxiliaryWorker.mapPromise((w) => w.stop());
+    this.auxiliaryWorker.foreach((w) => w.stop());
     await this.worker.stop();
   }
 }

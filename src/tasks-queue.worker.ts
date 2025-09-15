@@ -31,7 +31,7 @@ export class TasksQueueWorker {
     this.pipeline.start();
   }
 
-  async stop(): Promise<void> {
+  stop() {
     return this.pipeline.stop();
   }
 

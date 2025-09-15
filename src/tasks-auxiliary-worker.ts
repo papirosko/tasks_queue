@@ -102,7 +102,7 @@ export class TasksAuxiliaryWorker {
       });
   }
 
-  async stop() {
+  stop() {
     option(this.workerTimer).foreach((t) => clearTimeout(t));
     option(this.metricsTimer).foreach((t) => clearTimeout(t));
   }

@@ -59,11 +59,9 @@ export class TasksPoolsService {
   async stop(timeoutMs = 30000) {
     logger.info("Stopping TasksPoolsService");
     try {
+      this.auxiliaryWorker.foreach((w) => w.stop());
       await Promise.race([
-        Promise.all([
-          this.auxiliaryWorker.mapPromise((w) => w.stop()),
-          this.pools.values.mapPromise((p) => p.stop()),
-        ]),
+        this.pools.values.mapPromise((p) => p.stop()),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Stop timeout")), timeoutMs),
         ),
