@@ -166,6 +166,9 @@ export class TasksPipeline {
     const task = await this.pollNextTask();
     return task.match({
       some: async (t) => {
+        if (this.stopRequested) {
+          return PipelineNextOperationFactory.sleep(this.loopInterval);
+        }
         this.tasksInProcess++;
         setImmediate(() => this.processTaskInLoop(t));
         return this.tasksInProcess < this.maxConcurrentTasks
@@ -173,6 +176,9 @@ export class TasksPipeline {
           : PipelineNextOperationFactory.sleep(this.loopInterval);
       },
       none: async () => {
+        if (this.stopRequested) {
+          return PipelineNextOperationFactory.sleep(this.loopInterval);
+        }
         const nextTimeOpt = await this.peekNextStartAfter();
         const delayMs = nextTimeOpt
           .map((startAfter) => {
@@ -191,7 +197,10 @@ export class TasksPipeline {
    *
    * @param t The task to be processed.
    */
-  private async processTaskInLoop(t: ScheduledTask) {
+  private async processTaskInLoop(t: ScheduledTask): Promise<void> {
+    if (this.stopRequested) {
+      return;
+    }
     try {
       logger.debug(
         `Starting task (id=${t.id}) in queue ${t.queue} (active ${this.tasksInProcess} of ${this.maxConcurrentTasks})`,
