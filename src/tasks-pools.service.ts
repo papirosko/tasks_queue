@@ -100,6 +100,7 @@ export class TasksPoolsService {
   async schedule(task: ScheduleTaskDetails) {
     const taskId = await this.dao.schedule(task);
     this.taskScheduled(task.queue, taskId);
+    return taskId;
   }
 
   async scheduleAtFixedRate(task: SchedulePeriodicTaskDetails) {
@@ -108,6 +109,7 @@ export class TasksPoolsService {
       TaskPeriodType.fixed_rate,
     );
     this.taskScheduled(task.queue, taskId);
+    return taskId;
   }
 
   async scheduleAtFixedDelay(task: SchedulePeriodicTaskDetails) {
@@ -116,6 +118,7 @@ export class TasksPoolsService {
       TaskPeriodType.fixed_delay,
     );
     this.taskScheduled(task.queue, taskId);
+    return taskId;
   }
 
   private taskScheduled(queue: string, taskId: Option<number>): void {

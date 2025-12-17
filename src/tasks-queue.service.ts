@@ -43,18 +43,27 @@ export class TasksQueueService {
   }
 
   async schedule(task: ScheduleTaskDetails) {
-    await this.tasksQueueDao.schedule(task);
+    const taskId = await this.tasksQueueDao.schedule(task);
     this.taskScheduled(task.queue);
+    return taskId;
   }
 
   async scheduleAtFixedRate(task: SchedulePeriodicTaskDetails) {
-    await this.tasksQueueDao.schedulePeriodic(task, TaskPeriodType.fixed_rate);
+    const taskId = await this.tasksQueueDao.schedulePeriodic(
+      task,
+      TaskPeriodType.fixed_rate,
+    );
     this.taskScheduled(task.queue);
+    return taskId;
   }
 
   async scheduleAtFixedDelay(task: SchedulePeriodicTaskDetails) {
-    await this.tasksQueueDao.schedulePeriodic(task, TaskPeriodType.fixed_delay);
+    const taskId = await this.tasksQueueDao.schedulePeriodic(
+      task,
+      TaskPeriodType.fixed_delay,
+    );
     this.taskScheduled(task.queue);
+    return taskId;
   }
 
   taskScheduled(queueName: string): void {
