@@ -1,7 +1,8 @@
-import { jest } from "@jest/globals";
+import { afterEach, beforeEach, jest } from "@jest/globals";
 import { TasksPoolsService, DEFAULT_POOL } from "../src/tasks-pools.service.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import { none, some } from "scats";
+import { TaskPeriodType } from "../src/tasks-model.js";
 
 jest.mock("log4js", () => ({
   getLogger: () => ({
@@ -104,5 +105,28 @@ describe("TasksPoolsService", () => {
     await service.schedule({ queue: "preview-queue" } as any);
 
     expect(taskScheduledSpy).toHaveBeenCalledWith("preview-queue");
+  });
+
+  // Expect scheduleAtCron to store a periodic task with cron repeat type.
+  it("schedules cron tasks with cron repeat type", async () => {
+    const dao = {
+      schedule: jest.fn(async () => some(1)),
+      schedulePeriodic: jest.fn(async () => some(2)),
+      nextPending: jest.fn(async () => none),
+      peekNextStartAfter: jest.fn(async () => none),
+    };
+    const manageService = {} as any;
+    const service = new TasksPoolsService(dao as any, manageService, false);
+
+    await service.scheduleAtCron({
+      queue: "q",
+      name: "cron-task",
+      cronExpression: "*/10 * * * * *",
+    });
+
+    expect(dao.schedulePeriodic).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "cron-task" }),
+      TaskPeriodType.cron,
+    );
   });
 });

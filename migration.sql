@@ -16,10 +16,21 @@ create table tasks_queue
     name                 varchar(20) unique nulls distinct                                                      default null,
     start_after          timestamp                                                                              default null,
     repeat_interval      int8                                                                                   default null,
-    repeat_type          varchar(11) check (repeat_type in ('fixed_rate', 'fixed_delay'))                       default null,
+    cron_expression      text                                                                                   default null,
+    repeat_type          varchar(11) check (repeat_type in ('fixed_rate', 'fixed_delay', 'cron'))               default null,
     max_attempts         int4                                                                          not null default 1,
     attempt              int4                                                                          not null default 0,
-    payload              jsonb                                                                                  default null
+    payload              jsonb                                                                                  default null,
+    constraint tasks_queue_cron_expression_not_blank
+        check (cron_expression is null or btrim(cron_expression) <> ''),
+    constraint tasks_queue_repeat_config_consistency
+        check (
+            (repeat_type is null and repeat_interval is null and cron_expression is null)
+                or
+            (repeat_type in ('fixed_rate', 'fixed_delay') and repeat_interval is not null and cron_expression is null)
+                or
+            (repeat_type = 'cron' and cron_expression is not null and repeat_interval is null)
+            )
 );
 CREATE INDEX ON tasks_queue (status);
 CREATE INDEX ON tasks_queue (queue);
@@ -46,7 +57,8 @@ comment on column tasks_queue.timeout is 'The duration in milliseconds after whi
 comment on column tasks_queue.name is 'The optional unique name used to identify and deduplicate periodic tasks';
 comment on column tasks_queue.start_after is 'The optional time, when the task should be started. If not set, task will be processed once the worker will fetch it';
 comment on column tasks_queue.repeat_interval is 'The optional duration, after which successfully completed task will be processed again. If null, the task will be executed only once';
-comment on column tasks_queue.repeat_type is 'Defines how the next execution time is calculated for repeating tasks (e.g., fixed_rate, fixed_delay)';
+comment on column tasks_queue.cron_expression is 'The optional cron expression that defines periodic task executions. Supports 5-field and 6-field formats';
+comment on column tasks_queue.repeat_type is 'Defines how the next execution time is calculated for repeating tasks (e.g., fixed_rate, fixed_delay, cron)';
 comment on column tasks_queue.max_attempts is 'The maximum number of attempts for a task to be processed in case of failures';
 comment on column tasks_queue.attempt is 'The number of attempts the task was fetched for processing';
 comment on column tasks_queue.payload is 'The optional data for the worker, that will process this task';

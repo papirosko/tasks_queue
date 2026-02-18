@@ -88,6 +88,7 @@ export interface ScheduleTaskDetails {
 export enum TaskPeriodType {
   fixed_rate = "fixed_rate",
   fixed_delay = "fixed_delay",
+  cron = "cron",
 }
 
 /**
@@ -125,6 +126,33 @@ export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
    *
    * - 'catch_up' — execute the task once for each missed interval since its creation time.
    * - 'skip_missed' — run once immediately and schedule the next one based on the original schedule.
+   */
+  missedRunStrategy?: MissedRunStrategy;
+}
+
+export interface ScheduleCronTaskDetails extends ScheduleTaskDetails {
+  /**
+   * The unique name for the periodic task for the deduplication.
+   */
+  name: string;
+
+  /**
+   * Cron expression that defines the periodic execution schedule.
+   *
+   * Supported formats:
+   * - 5 fields: minute, hour, day of month, month, day of week
+   * - 6 fields: second, minute, hour, day of month, month, day of week
+   *
+   * In the current implementation, cron schedules are evaluated in UTC.
+   */
+  cronExpression: string;
+
+  /**
+   * Strategy that defines how to handle missed executions for a periodic task
+   * when the server is down or delayed. Default value: 'skip_missed'
+   *
+   * - 'catch_up' — execute the task once for each missed schedule tick.
+   * - 'skip_missed' — run once and schedule the next future tick.
    */
   missedRunStrategy?: MissedRunStrategy;
 }

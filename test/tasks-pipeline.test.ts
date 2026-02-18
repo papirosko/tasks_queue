@@ -1,4 +1,4 @@
-import { jest } from "@jest/globals";
+import { afterEach, beforeEach, jest } from "@jest/globals";
 import { none, some } from "scats";
 import { TasksPipeline } from "../src/tasks-pipeline.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
@@ -96,8 +96,8 @@ describe("TasksPipeline", () => {
   // Expect the sleep delay to match the nearest start_after timestamp.
   it("uses peekNextStartAfter to reduce sleep interval", async () => {
     const pollNextTask = jest.fn(async () => none);
-    const peekNextStartAfter = jest.fn(
-      async () => some(new Date(Date.now() + 5)),
+    const peekNextStartAfter = jest.fn(async () =>
+      some(new Date(Date.now() + 5)),
     );
     const processTask = jest.fn(async () => undefined);
     const timeoutSpy = jest.spyOn(global, "setTimeout");

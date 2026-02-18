@@ -5,6 +5,7 @@ import { TasksQueueService } from "./tasks-queue.service.js";
 import { TasksAuxiliaryWorker } from "./tasks-auxiliary-worker.js";
 import log4js from "log4js";
 import {
+  ScheduleCronTaskDetails,
   SchedulePeriodicTaskDetails,
   ScheduleTaskDetails,
   TaskPeriodType,
@@ -15,6 +16,12 @@ import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 export const DEFAULT_POOL = "default";
 const logger = log4js.getLogger("TasksPoolsService");
 
+/**
+ * Service that manages multiple task-processing pools and routes queue events to them.
+ *
+ * Periodic scheduling supports fixed rate, fixed delay, and cron expressions.
+ * Cron schedules are currently evaluated in UTC timezone.
+ */
 export class TasksPoolsService {
   private readonly pools: HashMap<string, TasksQueueService>;
   private readonly queuesPool = new mutable.HashMap<string, string>();
@@ -50,12 +57,25 @@ export class TasksPoolsService {
       : none;
   }
 
+  /**
+   * Start all configured pools and optional auxiliary worker.
+   *
+   * Each pool starts its own polling pipeline with its configured concurrency
+   * and loop interval.
+   */
   start() {
     logger.info(`Starting TasksPoolsService with ${this.pools.size} pools`);
     this.auxiliaryWorker.foreach((w) => w.start());
     this.pools.values.foreach((p) => p.start());
   }
 
+  /**
+   * Stop all pools gracefully.
+   *
+   * The method races pool shutdown against a timeout to avoid hanging forever.
+   *
+   * @param timeoutMs maximum time to wait for graceful stop
+   */
   async stop(timeoutMs = 30000) {
     logger.info("Stopping TasksPoolsService");
     try {
@@ -73,6 +93,16 @@ export class TasksPoolsService {
     }
   }
 
+  /**
+   * Register a queue worker in the selected pool.
+   *
+   * A queue can be bound to only one pool. Attempting to register the same
+   * queue twice throws an error.
+   *
+   * @param queueName queue identifier
+   * @param worker worker implementation
+   * @param poolName target pool name, defaults to `default`
+   */
   registerWorker(
     queueName: string,
     worker: TasksWorker,
@@ -97,12 +127,27 @@ export class TasksPoolsService {
     });
   }
 
+  /**
+   * Schedule a one-time task.
+   *
+   * After persistence, the task notification is routed to the pool where
+   * the queue worker is registered.
+   *
+   * @param task one-time task details
+   * @returns created task id if insert succeeded, otherwise `none`
+   */
   async schedule(task: ScheduleTaskDetails) {
     const taskId = await this.dao.schedule(task);
     this.taskScheduled(task.queue, taskId);
     return taskId;
   }
 
+  /**
+   * Schedule a periodic task with fixed-rate semantics.
+   *
+   * @param task periodic task details with `period` in milliseconds
+   * @returns created task id if insert succeeded, otherwise `none`
+   */
   async scheduleAtFixedRate(task: SchedulePeriodicTaskDetails) {
     const taskId = await this.dao.schedulePeriodic(
       task,
@@ -112,6 +157,12 @@ export class TasksPoolsService {
     return taskId;
   }
 
+  /**
+   * Schedule a periodic task with fixed-delay semantics.
+   *
+   * @param task periodic task details with `period` in milliseconds
+   * @returns created task id if insert succeeded, otherwise `none`
+   */
   async scheduleAtFixedDelay(task: SchedulePeriodicTaskDetails) {
     const taskId = await this.dao.schedulePeriodic(
       task,
@@ -121,6 +172,34 @@ export class TasksPoolsService {
     return taskId;
   }
 
+  /**
+   * Schedule a periodic task by cron expression.
+   *
+   * Supported formats:
+   * - 5 fields: minute, hour, day-of-month, month, day-of-week
+   * - 6 fields: second, minute, hour, day-of-month, month, day-of-week
+   *
+   * Cron expression validation is performed in DAO before insert.
+   * Cron schedule calculations currently use UTC timezone.
+   *
+   * @param task cron task details
+   * @returns created task id if insert succeeded, otherwise `none`
+   */
+  async scheduleAtCron(task: ScheduleCronTaskDetails) {
+    const taskId = await this.dao.schedulePeriodic(task, TaskPeriodType.cron);
+    this.taskScheduled(task.queue, taskId);
+    return taskId;
+  }
+
+  /**
+   * Route scheduling signal to the pool that owns the queue.
+   *
+   * If no worker is registered for the queue, task remains pending until
+   * a worker appears.
+   *
+   * @param queue queue identifier
+   * @param taskId created task id if available
+   */
   private taskScheduled(queue: string, taskId: Option<number>): void {
     this.queuesPool.get(queue).match({
       some: (poolName) => {

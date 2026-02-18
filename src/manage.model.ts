@@ -25,6 +25,7 @@ export class TaskDto {
     readonly name: Option<string>,
     readonly startAfter: Option<Date>,
     readonly repeatInterval: Option<number>,
+    readonly cronExpression: Option<string>,
     readonly repeatType: Option<TaskPeriodType>,
     readonly maxAttempts: number,
     readonly attempt: number,
@@ -89,6 +90,9 @@ export class TaskView {
   repeatInterval?: number;
 
   @ApiProperty()
+  cronExpression?: string;
+
+  @ApiProperty()
   repeatType?: TaskPeriodType;
 
   @ApiProperty()
@@ -118,6 +122,7 @@ export class TaskView {
     res.name = dto.name.orUndefined;
     res.startAfter = dto.startAfter.map((d) => d.getTime()).orUndefined;
     res.repeatInterval = dto.repeatInterval.orUndefined;
+    res.cronExpression = dto.cronExpression.orUndefined;
     res.repeatType = dto.repeatType.orUndefined;
     res.maxAttempts = dto.maxAttempts;
     res.attempt = dto.attempt;

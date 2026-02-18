@@ -1,6 +1,7 @@
 import { Collection, HashSet, none, option, Option } from "scats";
 import pg, { PoolClient } from "pg";
 import type {
+  ScheduleCronTaskDetails,
   SchedulePeriodicTaskDetails,
   ScheduleTaskDetails,
 } from "./tasks-model.js";
@@ -13,6 +14,11 @@ import {
 } from "./tasks-model.js";
 import { Metric } from "application-metrics";
 import { TimeUtils } from "./time-utils.js";
+import { CronExpressionUtils } from "./cron-expression-utils.js";
+import {
+  PeriodicScheduleConfig,
+  PeriodicScheduleUtils,
+} from "./periodic-schedule-utils.js";
 
 export class TasksQueueDao {
   constructor(private readonly pool: pg.Pool) {}
@@ -63,23 +69,49 @@ export class TasksQueueDao {
   }
 
   /**
-   * Add new task to a queue, that will be executed periodically with the fixed rate.
-   * @param task parameters of the new task
-   * @param periodType how to repeat the task, based on fixed-rate or fixed-delay.
+   * Add a new periodic task to the queue.
+   *
+   * Supported periodic modes:
+   * - `fixed_rate`: uses `period` in milliseconds.
+   * - `fixed_delay`: uses `period` in milliseconds.
+   * - `cron`: uses `cronExpression`.
+   *
+   * Cron expressions support both common formats:
+   * - 5-field format: `minute hour day-of-month month day-of-week`
+   * - 6-field format: `second minute hour day-of-month month day-of-week`
+   *
+   * @param task parameters of the periodic task
+   * @param periodType repeat type that defines how next execution is calculated
    * @return the id of the created task or none if task was not scheduled (e.g. already exists)
    */
   @Metric()
   async schedulePeriodic(
-    task: SchedulePeriodicTaskDetails,
+    task: SchedulePeriodicTaskDetails | ScheduleCronTaskDetails,
     periodType: TaskPeriodType,
   ): Promise<Option<number>> {
     const now = new Date();
+    // Build a consistent storage representation before writing to the database.
+    // Exactly one of repeat_interval or cron_expression must be set.
+    const repeatInterval = PeriodicScheduleUtils.resolveRepeatInterval(
+      task,
+      periodType,
+    );
+    const cronExpression = PeriodicScheduleUtils.resolveCronExpression(
+      task,
+      periodType,
+    );
+
+    // Validate cron early so invalid schedules never enter persistent storage.
+    option(cronExpression).foreach((expr) =>
+      CronExpressionUtils.validate(expr),
+    );
+
     return await this.withClient(async (cl) => {
       const res = await cl.query(
         `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
                                           start_after, initial_start, name,
-                                          repeat_interval, repeat_type, backoff, backoff_type, missed_runs_strategy)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14)
+                                          repeat_interval, cron_expression, repeat_type, backoff, backoff_type, missed_runs_strategy)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
                  on conflict (name) do nothing
                  returning id`,
         [
@@ -92,7 +124,8 @@ export class TasksQueueDao {
           option(task.retries).getOrElseValue(1),
           option(task.startAfter).getOrElseValue(now),
           task.name,
-          task.period,
+          repeatInterval,
+          cronExpression,
           periodType,
           option(task.backoff).getOrElseValue(TimeUtils.minute),
           option(task.backoffType).getOrElseValue(BackoffType.linear),
@@ -245,10 +278,19 @@ export class TasksQueueDao {
   }
 
   /**
-   * Reschedule a periodic task by setting its status back to 'pending' and updating the 'start_after' field
-   * based on the task's repeat_interval and repeat_type.
+   * Reschedule a periodic task by setting its status back to `pending` and updating `start_after`.
    *
-   * Task must have status='in_progress', repeat_interval != null and a valid repeat_type ('fixedRate' or 'fixedDelay').
+   * This method runs in a transaction and performs two operations:
+   * 1) lock and read periodic scheduling parameters (`SELECT ... FOR UPDATE`)
+   * 2) update task state and `start_after` using the computed next execution time.
+   *
+   * Supported periodic sources:
+   * - `repeat_interval` for fixed rate / fixed delay modes
+   * - `cron_expression` for cron mode
+   *
+   * Cron expressions support both common formats:
+   * - 5-field format: `minute hour day-of-month month day-of-week`
+   * - 6-field format: `second minute hour day-of-month month day-of-week`
    *
    * @param taskId the id of the task
    */
@@ -256,32 +298,85 @@ export class TasksQueueDao {
   async rescheduleIfPeriodic(taskId: number): Promise<void> {
     await this.withClient(async (cl) => {
       const now = new Date();
-      await cl.query(
-        `
-                    UPDATE tasks_queue
-                    SET status      = $1,
-                        start_after = CASE
-                                          WHEN repeat_type = 'fixed_rate' AND missed_runs_strategy = 'catch_up' THEN
-                                              start_after + (repeat_interval * interval '1 millisecond')
-                                          WHEN repeat_type = 'fixed_rate' AND missed_runs_strategy = 'skip_missed' THEN
-                                              initial_start +
-                                              (CEIL(EXTRACT(EPOCH FROM ($2 - initial_start)) * 1000 / repeat_interval) *
-                                               repeat_interval * interval '1 millisecond')
-                                          ELSE
-                                              $2 + (repeat_interval * interval '1 millisecond')
-                            END,
-                        finished    = $2,
-                        error       = NULL,
-                        attempt     = 0
-                    WHERE id = $3
-                      AND status = $4
-                      AND repeat_interval IS NOT NULL
-                      AND missed_runs_strategy IS NOT NULL
-                      AND repeat_type IN ('${TaskPeriodType.fixed_rate}', '${TaskPeriodType.fixed_delay}');
-                `,
-        [TaskStatus.pending, now, taskId, TaskStatus.in_progress],
-      );
+      await cl.query("BEGIN");
+      try {
+        // Lock the row and read scheduling parameters atomically to avoid races.
+        const periodicTask = await this.findPeriodicForReschedule(cl, taskId);
+        await periodicTask.mapPromise(async (task) => {
+          // Compute the next trigger in application code to support both interval and cron schedules.
+          const nextStartAfter = PeriodicScheduleUtils.calculateNextStartAfter(
+            task,
+            now,
+          );
+          await cl.query(
+            `UPDATE tasks_queue
+                       SET status      = $1,
+                           start_after = $2,
+                           finished    = $3,
+                           error       = NULL,
+                           attempt     = 0
+                     WHERE id = $4
+                       AND status = $5`,
+            [
+              TaskStatus.pending,
+              nextStartAfter,
+              now,
+              taskId,
+              TaskStatus.in_progress,
+            ],
+          );
+          return task;
+        });
+        await cl.query("COMMIT");
+      } catch (e) {
+        await cl.query("ROLLBACK");
+        throw e;
+      }
     });
+  }
+
+  private async findPeriodicForReschedule(
+    cl: PoolClient,
+    taskId: number,
+  ): Promise<Option<PeriodicScheduleConfig>> {
+    const res = await cl.query(
+      `SELECT repeat_type,
+              repeat_interval,
+              cron_expression,
+              start_after,
+              initial_start,
+              missed_runs_strategy
+         FROM tasks_queue
+        WHERE id = $1
+          AND status = $2
+          AND missed_runs_strategy IS NOT NULL
+          AND repeat_type IN ($3, $4, $5)
+          AND (
+                (repeat_type IN ($3, $4) AND repeat_interval IS NOT NULL)
+                OR
+                (repeat_type = $5 AND cron_expression IS NOT NULL)
+              )
+        FOR UPDATE`,
+      [
+        taskId,
+        TaskStatus.in_progress,
+        TaskPeriodType.fixed_rate,
+        TaskPeriodType.fixed_delay,
+        TaskPeriodType.cron,
+      ],
+    );
+    return Collection.from(res.rows).headOption.map((r) => ({
+      repeatType:
+        TaskPeriodType[r["repeat_type"] as keyof typeof TaskPeriodType],
+      repeatInterval: option(r["repeat_interval"]).map(Number),
+      cronExpression: option(r["cron_expression"]).map(String),
+      startAfter: new Date(r["start_after"]),
+      initialStart: new Date(r["initial_start"]),
+      missedRunsStrategy:
+        MissedRunStrategy[
+          r["missed_runs_strategy"] as keyof typeof MissedRunStrategy
+        ],
+    }));
   }
 
   /**

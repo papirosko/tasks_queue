@@ -47,6 +47,7 @@ export class ManageTasksQueueService {
         option(row["name"]),
         option(row["start_after"]),
         option(row["repeat_interval"]),
+        option(row["cron_expression"]),
         option(row["repeat_type"]),
         row["max_attempts"],
         row["attempt"],

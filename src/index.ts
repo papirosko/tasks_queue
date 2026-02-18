@@ -1,4 +1,6 @@
 export * from "./tasks-model.js";
+export * from "./cron-expression.js";
+export * from "./cron-expression-utils.js";
 export * from "./tasks-pool.js";
 export * from "./tasks-pools.service.js";
 export * from "./tasks-queue.module.js";

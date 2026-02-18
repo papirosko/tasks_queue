@@ -1,4 +1,4 @@
-import { jest } from "@jest/globals";
+import { afterEach, jest } from "@jest/globals";
 import { TaskFailed, TaskPeriodType, TaskStatus } from "../src/tasks-model.js";
 import { TasksQueueWorker } from "../src/tasks-queue.worker.js";
 import { TasksWorker } from "../src/tasks-worker.js";
@@ -94,11 +94,7 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.fail).toHaveBeenCalledWith(
-      1,
-      "failed",
-      { replace: true },
-    );
+    expect(dao.fail).toHaveBeenCalledWith(1, "failed", { replace: true });
   });
 
   // Expect lifecycle callback failures to not stop finishing the task.
