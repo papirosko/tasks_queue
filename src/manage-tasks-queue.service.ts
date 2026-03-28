@@ -1,10 +1,62 @@
 import pg from "pg";
-import { Collection, mutable, option } from "scats";
-import { TaskStatus } from "./tasks-model.js";
-import { QueueStat, TaskDto, TasksCount, TasksResult } from "./manage.model.js";
+import { Collection, mutable, option, Option } from "scats";
+import { TaskPeriodType, TaskStatus } from "./tasks-model.js";
+import {
+  QueueStat,
+  TaskDto,
+  TasksCount,
+  TasksResult,
+  UpdatePendingPeriodicScheduleDetails,
+  UpdatePendingTaskDetails,
+} from "./manage.model.js";
+import { CronExpressionUtils } from "./cron-expression-utils.js";
 
 export class ManageTasksQueueService {
   constructor(private readonly pool: pg.Pool) {}
+
+  /**
+   * Finds a task by its identifier.
+   *
+   * Returns the full management view of the task if it exists, otherwise `none`.
+   *
+   * @param taskId task identifier
+   * @returns task details wrapped in Option
+   */
+  async findById(taskId: number): Promise<Option<TaskDto>> {
+    const res = await this.pool.query(
+      `select *
+             from tasks_queue
+             where id = $1`,
+      [taskId],
+    );
+
+    return Collection.from(res.rows).headOption.map(
+      (row) =>
+        new TaskDto(
+          row["id"],
+          row["queue"],
+          row["created"],
+          row["initial_start"],
+          option(row["started"]),
+          option(row["finished"]),
+          row["status"],
+          row["missed_run_strategy"],
+          row["priority"],
+          option(row["error"]),
+          row["backoff"],
+          row["backoff_type"],
+          row["timeout"],
+          option(row["name"]),
+          option(row["start_after"]),
+          option(row["repeat_interval"]),
+          option(row["cron_expression"]),
+          option(row["repeat_type"]),
+          row["max_attempts"],
+          row["attempt"],
+          row["payload"],
+        ),
+    );
+  }
 
   async findByStatus(params: {
     status?: TaskStatus;
@@ -71,6 +123,117 @@ export class ManageTasksQueueService {
     return this.pool.query(`delete
                                 from tasks_queue
                                 where status = '${TaskStatus.error}'`);
+  }
+
+  /**
+   * Updates the editable runtime configuration of a pending task.
+   *
+   * Only tasks currently in `pending` state can be updated. This method changes
+   * task execution and retry settings, but does not modify periodic scheduling fields.
+   *
+   * @param taskId task identifier
+   * @param details full replacement of editable task fields
+   * @returns true if the pending task was updated, false if it was not found or is no longer pending
+   */
+  async updatePendingTask(
+    taskId: number,
+    details: UpdatePendingTaskDetails,
+  ): Promise<boolean> {
+    if (details.timeout <= 0) {
+      throw new Error("Task timeout must be greater than 0");
+    }
+    if (details.retries <= 0) {
+      throw new Error("Task retries must be greater than 0");
+    }
+    if (details.backoff < 0) {
+      throw new Error("Task backoff must be greater than or equal to 0");
+    }
+
+    const res = await this.pool.query(
+      `
+            update tasks_queue
+            set start_after = $2,
+                priority = $3,
+                timeout = $4,
+                payload = $5,
+                max_attempts = $6,
+                backoff = $7,
+                backoff_type = $8
+            where id = $1
+              and status = '${TaskStatus.pending}'
+        `,
+      [
+        taskId,
+        details.startAfter,
+        details.priority,
+        details.timeout,
+        details.payload,
+        details.retries,
+        details.backoff,
+        details.backoffType,
+      ],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Updates the periodic schedule of a pending periodic task.
+   *
+   * Only tasks currently in `pending` state and already configured as periodic can be updated.
+   * This method changes scheduling fields only and does not modify payload, priority, timeout,
+   * or retry settings.
+   *
+   * @param taskId task identifier
+   * @param details full replacement of editable periodic scheduling fields
+   * @returns true if the pending periodic task was updated, false if it was not found, is not periodic, or is no longer pending
+   */
+  async updatePendingPeriodicSchedule(
+    taskId: number,
+    details: UpdatePendingPeriodicScheduleDetails,
+  ): Promise<boolean> {
+    switch (details.repeatType) {
+      case TaskPeriodType.fixed_rate:
+      case TaskPeriodType.fixed_delay:
+        if (details.period <= 0) {
+          throw new Error("Periodic task period must be greater than 0");
+        }
+        break;
+      case TaskPeriodType.cron:
+        CronExpressionUtils.validate(details.cronExpression);
+        break;
+    }
+
+    const repeatInterval =
+      details.repeatType === TaskPeriodType.cron ? null : details.period;
+    const cronExpression =
+      details.repeatType === TaskPeriodType.cron
+        ? details.cronExpression
+        : null;
+
+    const res = await this.pool.query(
+      `
+            update tasks_queue
+            set start_after = $2,
+                initial_start = $3,
+                repeat_type = $4,
+                repeat_interval = $5,
+                cron_expression = $6,
+                missed_runs_strategy = $7
+            where id = $1
+              and status = '${TaskStatus.pending}'
+              and repeat_type is not null
+        `,
+      [
+        taskId,
+        details.startAfter,
+        details.initialStart,
+        details.repeatType,
+        repeatInterval,
+        cronExpression,
+        details.missedRunStrategy,
+      ],
+    );
+    return (res.rowCount ?? 0) > 0;
   }
 
   async waitTimeByQueue(): Promise<Collection<QueueStat>> {

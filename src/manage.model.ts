@@ -40,6 +40,110 @@ export class TasksResult {
   ) {}
 }
 
+/**
+ * Full editable configuration for a pending task.
+ *
+ * This model is intended for "read task -> modify fields -> submit updated state"
+ * workflows, so all values are required explicitly instead of being patch-style optional.
+ */
+export interface UpdatePendingTaskDetails {
+  /**
+   * Earliest time when the task may be picked up by a worker.
+   * Set to null to make the task eligible immediately.
+   */
+  startAfter: Date | null;
+
+  /**
+   * Higher values are fetched first among pending tasks.
+   */
+  priority: number;
+
+  /**
+   * Maximum execution time in milliseconds before the task is considered stalled.
+   */
+  timeout: number;
+
+  /**
+   * Payload to pass to the worker. Can be null to clear the payload.
+   */
+  payload: any;
+
+  /**
+   * Maximum number of processing attempts for the task.
+   */
+  retries: number;
+
+  /**
+   * Base delay in milliseconds before retrying a failed task.
+   */
+  backoff: number;
+
+  /**
+   * Strategy used to calculate retry delay.
+   */
+  backoffType: BackoffType;
+}
+
+/**
+ * Full editable periodic schedule for a pending periodic task.
+ *
+ * The shape is discriminated by repeat type so interval-based and cron-based
+ * schedules remain mutually exclusive.
+ */
+export type UpdatePendingPeriodicScheduleDetails =
+  | {
+      /**
+       * Earliest time for the next execution according to the edited schedule.
+       */
+      startAfter: Date;
+
+      /**
+       * Fixed schedule anchor used by periodic scheduling logic.
+       */
+      initialStart: Date;
+
+      /**
+       * Periodic mode that uses a repeat interval in milliseconds.
+       */
+      repeatType: TaskPeriodType.fixed_rate | TaskPeriodType.fixed_delay;
+
+      /**
+       * Interval in milliseconds between task executions.
+       */
+      period: number;
+
+      /**
+       * Strategy for handling runs missed while the task could not execute.
+       */
+      missedRunStrategy: MissedRunStrategy;
+    }
+  | {
+      /**
+       * Earliest time for the next execution according to the edited schedule.
+       */
+      startAfter: Date;
+
+      /**
+       * Fixed schedule anchor used by periodic scheduling logic.
+       */
+      initialStart: Date;
+
+      /**
+       * Periodic mode that uses a cron expression.
+       */
+      repeatType: TaskPeriodType.cron;
+
+      /**
+       * Cron expression in 5-field or 6-field format.
+       */
+      cronExpression: string;
+
+      /**
+       * Strategy for handling runs missed while the task could not execute.
+       */
+      missedRunStrategy: MissedRunStrategy;
+    };
+
 export class TaskView {
   @ApiProperty()
   id!: number;
