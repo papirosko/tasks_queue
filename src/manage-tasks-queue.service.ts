@@ -124,6 +124,33 @@ export class ManageTasksQueueService {
   }
 
   /**
+   * Deletes a task by id only when it is safe to remove from the queue.
+   *
+   * Deletion is allowed only for tasks in one of the terminal or inactive states:
+   * - `pending`
+   * - `error`
+   * - `finished`
+   *
+   * Tasks in `in_progress` state are never deleted because removing an actively
+   * processed task can break worker execution semantics.
+   *
+   * @param taskId task identifier
+   * @returns true if the task was deleted, false if it was not found or is in a non-deletable status
+   */
+  async deleteTask(taskId: number): Promise<boolean> {
+    const res = await this.pool.query(
+      `
+            delete
+            from tasks_queue
+            where id = $1
+              and status in ($2, $3, $4)
+        `,
+      [taskId, TaskStatus.pending, TaskStatus.error, TaskStatus.finished],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /**
    * Updates the editable runtime configuration of a pending task.
    *
    * Only tasks currently in `pending` state can be updated. This method changes
