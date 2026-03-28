@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+### Added
+- Management service now provides `deleteTask(taskId)` for deleting tasks only in `pending`, `error`, or `finished` status.
+
 ## 1.4.1
 
 ### Fixed
