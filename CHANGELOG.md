@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+### Fixed
+- Management API task mapping now reads `missed_runs_strategy` from the database correctly, so `missedRunStrategy` is returned in task DTO/view payloads.
+
 ## 1.4.0
 
 ### Added

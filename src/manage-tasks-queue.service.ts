@@ -24,7 +24,7 @@ export class ManageTasksQueueService {
       option(row["started"]),
       option(row["finished"]),
       row["status"],
-      row["missed_run_strategy"],
+      row["missed_runs_strategy"],
       row["priority"],
       option(row["error"]),
       row["backoff"],
