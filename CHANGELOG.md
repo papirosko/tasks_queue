@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+- Management methods to load a task by id and update pending task runtime settings.
+- Separate management method to update periodic schedule fields for pending periodic tasks.
+- Optional queue filter for task search parameters.
+
+### Changed
+- Renamed management search method from `findByStatus(...)` to `findByParameters(...)`.
+
 ## 1.3.0
 
 ### Added
