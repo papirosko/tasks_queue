@@ -41,6 +41,31 @@ export class TasksResult {
 }
 
 /**
+ * Search parameters for listing tasks from the management API.
+ */
+export interface FindTasksParameters {
+  /**
+   * Optional task status filter.
+   */
+  status?: TaskStatus;
+
+  /**
+   * Optional queue name filter.
+   */
+  queue?: string;
+
+  /**
+   * Pagination offset.
+   */
+  offset: number;
+
+  /**
+   * Pagination limit.
+   */
+  limit: number;
+}
+
+/**
  * Full editable configuration for a pending task.
  *
  * This model is intended for "read task -> modify fields -> submit updated state"

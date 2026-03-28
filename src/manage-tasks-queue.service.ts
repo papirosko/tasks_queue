@@ -2,6 +2,7 @@ import pg from "pg";
 import { Collection, mutable, option, Option } from "scats";
 import { TaskPeriodType, TaskStatus } from "./tasks-model.js";
 import {
+  FindTasksParameters,
   QueueStat,
   TaskDto,
   TasksCount,
@@ -13,6 +14,32 @@ import { CronExpressionUtils } from "./cron-expression-utils.js";
 
 export class ManageTasksQueueService {
   constructor(private readonly pool: pg.Pool) {}
+
+  private mapTaskRow(row: any): TaskDto {
+    return new TaskDto(
+      row["id"],
+      row["queue"],
+      row["created"],
+      row["initial_start"],
+      option(row["started"]),
+      option(row["finished"]),
+      row["status"],
+      row["missed_run_strategy"],
+      row["priority"],
+      option(row["error"]),
+      row["backoff"],
+      row["backoff_type"],
+      row["timeout"],
+      option(row["name"]),
+      option(row["start_after"]),
+      option(row["repeat_interval"]),
+      option(row["cron_expression"]),
+      option(row["repeat_type"]),
+      row["max_attempts"],
+      row["attempt"],
+      row["payload"],
+    );
+  }
 
   /**
    * Finds a task by its identifier.
@@ -30,82 +57,53 @@ export class ManageTasksQueueService {
       [taskId],
     );
 
-    return Collection.from(res.rows).headOption.map(
-      (row) =>
-        new TaskDto(
-          row["id"],
-          row["queue"],
-          row["created"],
-          row["initial_start"],
-          option(row["started"]),
-          option(row["finished"]),
-          row["status"],
-          row["missed_run_strategy"],
-          row["priority"],
-          option(row["error"]),
-          row["backoff"],
-          row["backoff_type"],
-          row["timeout"],
-          option(row["name"]),
-          option(row["start_after"]),
-          option(row["repeat_interval"]),
-          option(row["cron_expression"]),
-          option(row["repeat_type"]),
-          row["max_attempts"],
-          row["attempt"],
-          row["payload"],
-        ),
+    return Collection.from(res.rows).headOption.map((row) =>
+      this.mapTaskRow(row),
     );
   }
 
-  async findByStatus(params: {
-    status?: TaskStatus;
-    offset: number;
-    limit: number;
-  }): Promise<TasksResult> {
+  /**
+   * Finds tasks using optional management filters.
+   *
+   * Supported filters currently include task status and queue name.
+   *
+   * @param params search and pagination parameters
+   * @returns paginated tasks result
+   */
+  async findByParameters(params: FindTasksParameters): Promise<TasksResult> {
     const parts = new mutable.ArrayBuffer<string>();
+    const queryParams = new mutable.ArrayBuffer<any>();
+
     option(params.status).foreach((status) => {
-      parts.append(`status='${status}'`);
+      queryParams.append(status);
+      parts.append(`status = $${queryParams.size}`);
+    });
+    option(params.queue).foreach((queue) => {
+      queryParams.append(queue);
+      parts.append(`queue = $${queryParams.size}`);
     });
 
-    const where = parts.nonEmpty ? `where ${parts.toArray.join(" and ")}` : "";
+    const where = parts.nonEmpty ? `where ${parts.mkString(" and ")}` : "";
+    const paginationParams = queryParams.appendedAll([
+      params.limit,
+      params.offset,
+    ]);
 
     const res = await this.pool.query(
       `select *
              from tasks_queue ${where}
              order by created desc
-             limit $1 offset $2`,
-      [params.limit, params.offset],
+             limit $${queryParams.size + 1} offset $${queryParams.size + 2}`,
+      paginationParams.toArray,
     );
 
-    const total = await this.pool.query(`select count(*) as total
-                                             from tasks_queue ${where}`);
+    const total = await this.pool.query(
+      `select count(*) as total
+                                             from tasks_queue ${where}`,
+      queryParams.toArray,
+    );
 
-    const items = Collection.from(res.rows).map((row) => {
-      return new TaskDto(
-        row["id"],
-        row["queue"],
-        row["created"],
-        row["initial_start"],
-        option(row["started"]),
-        option(row["finished"]),
-        row["status"],
-        row["missed_run_strategy"],
-        row["priority"],
-        option(row["error"]),
-        row["backoff"],
-        row["backoff_type"],
-        row["timeout"],
-        option(row["name"]),
-        option(row["start_after"]),
-        option(row["repeat_interval"]),
-        option(row["cron_expression"]),
-        option(row["repeat_type"]),
-        row["max_attempts"],
-        row["attempt"],
-        row["payload"],
-      );
-    });
+    const items = Collection.from(res.rows).map((row) => this.mapTaskRow(row));
 
     return new TasksResult(items, total.rows[0]["total"]);
   }
