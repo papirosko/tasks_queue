@@ -1,3 +1,5 @@
+import type { Option } from "scats";
+
 export enum TaskStatus {
   /**
    * Task is waiting for a worker to fetch it and to start processing.
@@ -192,6 +194,14 @@ export interface ScheduledTask {
 
 export type SpawnChildTaskDetails = ScheduleTaskDetails;
 
+export interface TaskStateSnapshot {
+  id: number;
+  parentId: number | undefined;
+  status: TaskStatus;
+  payload: object | undefined;
+  error: string | undefined;
+}
+
 /**
  * If this error is thrown from the process method of the task, then returned payload
  * will be stored as a new task payload, replacing the previous one.
@@ -221,6 +231,24 @@ export interface TaskContext {
    * Maximum number of attempts allowed for this task.
    */
   maxAttempts: number;
+  /**
+   * Replace the payload that will be persisted when the current task leaves `in_progress`.
+   *
+   * This is primarily useful for stateful orchestration tasks that need to checkpoint
+   * workflow state before blocking, finishing, or being rescheduled.
+   *
+   * @param payload next payload to persist
+   */
+  setPayload(payload: object): void;
+  /**
+   * Load a task snapshot by id from persistent storage.
+   *
+   * This is intended for orchestration helpers that need to inspect child task state
+   * while remaining independent from management services.
+   *
+   * @param taskId task id to load
+   */
+  findTask(taskId: number): Promise<Option<TaskStateSnapshot>>;
   /**
    * Request spawning a single child task after the current `process()` call completes successfully.
    *

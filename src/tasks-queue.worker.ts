@@ -8,6 +8,7 @@ import {
   ScheduledTask,
   TaskContext,
   TaskFailed,
+  TaskStateSnapshot,
   TaskStatus,
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
@@ -17,8 +18,10 @@ const logger = log4js.getLogger("TasksQueueWorker");
 
 class RuntimeTaskContext implements TaskContext {
   private childTask: Option<ScheduleTaskDetails> = none;
+  private _nextPayload: Option<object> = none;
 
   constructor(
+    private readonly tasksQueueDao: TasksQueueDao,
     readonly taskId: number,
     readonly currentAttempt: number,
     readonly maxAttempts: number,
@@ -33,8 +36,24 @@ class RuntimeTaskContext implements TaskContext {
     this.childTask = some(task);
   }
 
+  setPayload(payload: object): void {
+    this._nextPayload = some(payload);
+  }
+
+  async findTask(taskId: number): Promise<Option<TaskStateSnapshot>> {
+    return this.tasksQueueDao.findTaskState(taskId);
+  }
+
   get spawnedChild(): Option<ScheduleTaskDetails> {
     return this.childTask;
+  }
+
+  payloadToPersist(currentPayload: object | undefined): object {
+    return this._nextPayload.getOrElseValue(currentPayload ?? {});
+  }
+
+  get nextPayload(): Option<object> {
+    return this._nextPayload;
   }
 }
 
@@ -78,11 +97,68 @@ export class TasksQueueWorker {
     }
   }
 
+  /**
+   * Wake a blocked parent task after a child has reached a terminal state and notify its queue.
+   *
+   * @param childTaskId child task id
+   */
+  private async wakeBlockedParent(childTaskId: number): Promise<void> {
+    const parent =
+      await this.tasksQueueDao.wakeParentOnChildTerminal(childTaskId);
+    parent.foreach((p) => this.tasksScheduled(p.queue));
+  }
+
+  /**
+   * Persist a successful task outcome based on runtime orchestration state.
+   *
+   * The method handles child spawning, one-time task finishing, and periodic rescheduling.
+   *
+   * @param task current scheduled task
+   * @param context runtime task context
+   */
+  private async persistSuccessfulOutcome(
+    task: ScheduledTask,
+    context: RuntimeTaskContext,
+  ): Promise<void> {
+    await context.spawnedChild.match({
+      some: async (spawnedChild) => {
+        option(task.repeatType).foreach(() => {
+          throw new Error(`Periodic task ${task.id} cannot spawn child tasks`);
+        });
+        const childTaskId =
+          await this.tasksQueueDao.blockParentAndScheduleChild(
+            task.id,
+            spawnedChild,
+            context.payloadToPersist(task.payload),
+          );
+        childTaskId.foreach(() => this.tasksScheduled(spawnedChild.queue));
+      },
+      none: async () => {
+        await option(task.repeatType).match({
+          some: async () => {
+            await this.tasksQueueDao.rescheduleIfPeriodic(
+              task.id,
+              context.nextPayload.orUndefined,
+            );
+          },
+          none: async () => {
+            await this.tasksQueueDao.finish(
+              task.id,
+              context.nextPayload.orUndefined,
+            );
+            await this.wakeBlockedParent(task.id);
+          },
+        });
+      },
+    });
+  }
+
   private async processNextTask(task: ScheduledTask): Promise<void> {
     MetricsService.counter("tasks_queue_started").inc();
     await this.workers.get(task.queue).match({
       some: async (worker) => {
         const context = new RuntimeTaskContext(
+          this.tasksQueueDao,
           task.id,
           task.currentAttempt,
           task.maxAttempts,
@@ -95,32 +171,7 @@ export class TasksQueueWorker {
             ),
           );
           await worker.process(task.payload, context);
-          if (context.spawnedChild.nonEmpty) {
-            if (option(task.repeatType).nonEmpty) {
-              throw new Error(
-                `Periodic task ${task.id} cannot spawn child tasks`,
-              );
-            }
-            await context.spawnedChild.mapPromise(async (spawnedChild) => {
-              const childTaskId =
-                await this.tasksQueueDao.blockParentAndScheduleChild(
-                  task.id,
-                  spawnedChild,
-                );
-              childTaskId.foreach(() =>
-                this.tasksScheduled(spawnedChild.queue),
-              );
-              return spawnedChild;
-            });
-          } else if (option(task.repeatType).isEmpty) {
-            await this.tasksQueueDao.finish(task.id);
-            const parent = await this.tasksQueueDao.wakeParentOnChildTerminal(
-              task.id,
-            );
-            parent.foreach((p) => this.tasksScheduled(p.queue));
-          } else {
-            await this.tasksQueueDao.rescheduleIfPeriodic(task.id);
-          }
+          await this.persistSuccessfulOutcome(task, context);
           MetricsService.counter("tasks_queue_processed").inc();
           (
             await Try.promise(() => worker.completed(task.id, task.payload))
@@ -137,10 +188,7 @@ export class TasksQueueWorker {
             e instanceof TaskFailed ? e.payload : task.payload,
           );
           if (finalStatus === TaskStatus.error) {
-            const parent = await this.tasksQueueDao.wakeParentOnChildTerminal(
-              task.id,
-            );
-            parent.foreach((p) => this.tasksScheduled(p.queue));
+            await this.wakeBlockedParent(task.id);
           }
           (
             await Try.promise(() =>

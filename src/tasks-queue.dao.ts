@@ -9,6 +9,7 @@ import {
   BackoffType,
   MissedRunStrategy,
   ScheduledTask,
+  TaskStateSnapshot,
   TaskPeriodType,
   TaskStatus,
 } from "./tasks-model.js";
@@ -19,6 +20,7 @@ import {
   PeriodicScheduleConfig,
   PeriodicScheduleUtils,
 } from "./periodic-schedule-utils.js";
+import { MultiStepPayload } from "./multi-step-payload.js";
 
 export class TasksQueueDao {
   constructor(private readonly pool: pg.Pool) {}
@@ -103,6 +105,7 @@ export class TasksQueueDao {
   async blockParentAndScheduleChild(
     parentTaskId: number,
     childTask: ScheduleTaskDetails,
+    parentPayload: object,
   ): Promise<Option<number>> {
     return await this.withClient(async (cl) => {
       await cl.query("BEGIN");
@@ -129,6 +132,22 @@ export class TasksQueueDao {
           childTask,
           parentTaskId,
         );
+        await childTaskId.mapPromise(async (id) => {
+          await cl.query(
+            `update tasks_queue
+                 set payload = $1
+               where id = $2
+                 and status = $3`,
+            [
+              MultiStepPayload.fromJson(parentPayload).copy({
+                activeChildId: option(id),
+              }).toJson,
+              parentTaskId,
+              TaskStatus.blocked,
+            ],
+          );
+          return id;
+        });
         await cl.query("COMMIT");
         return childTaskId;
       } catch (e) {
@@ -289,6 +308,34 @@ export class TasksQueueDao {
   }
 
   /**
+   * Load a minimal persistent snapshot of a task by id.
+   *
+   * The returned shape is intentionally compact and suitable for orchestration logic
+   * that needs to inspect child task status and payload without depending on management APIs.
+   *
+   * @param taskId task id to load
+   * @returns task snapshot if the row exists
+   */
+  @Metric()
+  async findTaskState(taskId: number): Promise<Option<TaskStateSnapshot>> {
+    return await this.withClient(async (cl) => {
+      const res = await cl.query(
+        `select id, parent_id, status, payload, error
+           from tasks_queue
+          where id = $1`,
+        [taskId],
+      );
+      return Collection.from(res.rows).headOption.map((r) => ({
+        id: Number(r["id"]),
+        parentId: option(r["parent_id"]).map(Number).orUndefined,
+        status: TaskStatus[r["status"] as keyof typeof TaskStatus],
+        payload: option(r["payload"]).orUndefined,
+        error: option(r["error"]).map(String).orUndefined,
+      }));
+    });
+  }
+
+  /**
    * Returns the earliest upcoming `start_after` timestamp from the task queue.
    *
    * This can be used to calculate how long to sleep before polling again
@@ -334,17 +381,24 @@ export class TasksQueueDao {
    * @param taskId the id of the task
    */
   @Metric()
-  async finish(taskId: number): Promise<void> {
+  async finish(taskId: number, nextPayload?: object): Promise<void> {
     const now = new Date();
     await this.withClient(async (cl) => {
       await cl.query(
         `update tasks_queue
                  set status=$1,
                      finished=$2,
-                     error=null
+                     error=null,
+                     payload=$5
                  where id = $3
                    and status = $4`,
-        [TaskStatus.finished, now, taskId, TaskStatus.in_progress],
+        [
+          TaskStatus.finished,
+          now,
+          taskId,
+          TaskStatus.in_progress,
+          option(nextPayload).orNull,
+        ],
       );
     });
   }
@@ -404,7 +458,10 @@ export class TasksQueueDao {
    * @param taskId the id of the task
    */
   @Metric()
-  async rescheduleIfPeriodic(taskId: number): Promise<void> {
+  async rescheduleIfPeriodic(
+    taskId: number,
+    nextPayload?: object,
+  ): Promise<void> {
     await this.withClient(async (cl) => {
       const now = new Date();
       await cl.query("BEGIN");
@@ -423,7 +480,8 @@ export class TasksQueueDao {
                            start_after = $2,
                            finished    = $3,
                            error       = NULL,
-                           attempt     = 0
+                           attempt     = 0,
+                           payload     = $6
                      WHERE id = $4
                        AND status = $5`,
             [
@@ -432,6 +490,7 @@ export class TasksQueueDao {
               now,
               taskId,
               TaskStatus.in_progress,
+              option(nextPayload).orNull,
             ],
           );
           return task;

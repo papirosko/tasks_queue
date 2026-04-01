@@ -68,7 +68,7 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(taskWorker.process).toHaveBeenCalled();
-    expect(dao.finish).toHaveBeenCalledWith(1);
+    expect(dao.finish).toHaveBeenCalledWith(1, undefined);
     expect(dao.rescheduleIfPeriodic).not.toHaveBeenCalled();
   });
 
@@ -83,7 +83,7 @@ describe("TasksQueueWorker", () => {
       createTask({ repeatType: TaskPeriodType.fixed_rate }),
     );
 
-    expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(1);
+    expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(1, undefined);
     expect(dao.finish).not.toHaveBeenCalled();
   });
 
@@ -146,10 +146,14 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.blockParentAndScheduleChild).toHaveBeenCalledWith(1, {
-      queue: "child-q",
-      payload: { child: true },
-    });
+    expect(dao.blockParentAndScheduleChild).toHaveBeenCalledWith(
+      1,
+      {
+        queue: "child-q",
+        payload: { child: true },
+      },
+      { foo: "bar" },
+    );
     expect(dao.finish).not.toHaveBeenCalled();
   });
 
