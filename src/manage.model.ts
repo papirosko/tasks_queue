@@ -10,6 +10,7 @@ import {
 export class TaskDto {
   constructor(
     readonly id: number,
+    readonly parentId: Option<number>,
     readonly queue: string,
     readonly created: Date,
     readonly initialStart: Date,
@@ -173,6 +174,9 @@ export class TaskView {
   @ApiProperty()
   id!: number;
 
+  @ApiProperty({ required: false })
+  parentId?: number;
+
   @ApiProperty()
   queue!: string;
 
@@ -236,6 +240,7 @@ export class TaskView {
   static fromDto(dto: TaskDto) {
     const res = new TaskView();
     res.id = dto.id;
+    res.parentId = dto.parentId.orUndefined;
     res.queue = dto.queue;
     res.created = dto.created.getTime();
     res.initialStart = dto.initialStart.getTime();

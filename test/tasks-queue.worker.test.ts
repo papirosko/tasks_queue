@@ -1,5 +1,11 @@
 import { afterEach, jest } from "@jest/globals";
-import { TaskFailed, TaskPeriodType, TaskStatus } from "../src/tasks-model.js";
+import { none, some } from "scats";
+import {
+  TaskContext,
+  TaskFailed,
+  TaskPeriodType,
+  TaskStatus,
+} from "../src/tasks-model.js";
 import { TasksQueueWorker } from "../src/tasks-queue.worker.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
@@ -36,6 +42,17 @@ const createTask = (overrides: Partial<ScheduledTask> = {}): ScheduledTask => ({
   ...overrides,
 });
 
+const createDao = (overrides: Record<string, any> = {}) => ({
+  nextPending: jest.fn(async () => none),
+  peekNextStartAfter: jest.fn(async () => none),
+  finish: jest.fn(async () => undefined),
+  blockParentAndScheduleChild: jest.fn(async () => undefined),
+  rescheduleIfPeriodic: jest.fn(async () => undefined),
+  wakeParentOnChildTerminal: jest.fn(async () => none),
+  fail: jest.fn(async () => TaskStatus.pending),
+  ...overrides,
+});
+
 describe("TasksQueueWorker", () => {
   afterEach(() => {
     jest.clearAllMocks();
@@ -43,11 +60,7 @@ describe("TasksQueueWorker", () => {
 
   // Expect successful non-periodic tasks to be marked as finished.
   it("finishes non-periodic tasks after successful processing", async () => {
-    const dao = {
-      finish: jest.fn(async () => undefined),
-      rescheduleIfPeriodic: jest.fn(async () => undefined),
-      fail: jest.fn(async () => TaskStatus.pending),
-    };
+    const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     worker.registerWorker("q", taskWorker);
@@ -61,11 +74,7 @@ describe("TasksQueueWorker", () => {
 
   // Expect periodic tasks to be rescheduled instead of finished.
   it("reschedules periodic tasks after successful processing", async () => {
-    const dao = {
-      finish: jest.fn(async () => undefined),
-      rescheduleIfPeriodic: jest.fn(async () => undefined),
-      fail: jest.fn(async () => TaskStatus.pending),
-    };
+    const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     worker.registerWorker("q", taskWorker);
@@ -80,11 +89,7 @@ describe("TasksQueueWorker", () => {
 
   // Expect TaskFailed payload to be passed to dao.fail for retry.
   it("stores TaskFailed payloads on retry", async () => {
-    const dao = {
-      finish: jest.fn(async () => undefined),
-      rescheduleIfPeriodic: jest.fn(async () => undefined),
-      fail: jest.fn(async () => TaskStatus.pending),
-    };
+    const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     taskWorker.process.mockImplementation(async () => {
@@ -99,11 +104,7 @@ describe("TasksQueueWorker", () => {
 
   // Expect lifecycle callback failures to not stop finishing the task.
   it("continues even if lifecycle callbacks throw", async () => {
-    const dao = {
-      finish: jest.fn(async () => undefined),
-      rescheduleIfPeriodic: jest.fn(async () => undefined),
-      fail: jest.fn(async () => TaskStatus.pending),
-    };
+    const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     taskWorker.completed.mockImplementation(async () => {
@@ -119,11 +120,7 @@ describe("TasksQueueWorker", () => {
   // Expect missing worker to skip processing and increment metrics.
   it("skips processing when no worker is registered", async () => {
     const { MetricsService } = await import("application-metrics");
-    const dao = {
-      finish: jest.fn(async () => undefined),
-      rescheduleIfPeriodic: jest.fn(async () => undefined),
-      fail: jest.fn(async () => TaskStatus.pending),
-    };
+    const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10);
 
     await (worker as any).processNextTask(createTask({ queue: "missing" }));
@@ -131,5 +128,59 @@ describe("TasksQueueWorker", () => {
     expect(MetricsService.counter).toHaveBeenCalledWith(
       "tasks_queue_skipped_no_worker",
     );
+  });
+
+  it("blocks parent and schedules child when process requests spawnChild", async () => {
+    const dao = createDao({
+      blockParentAndScheduleChild: jest.fn(async () => 2),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        context.spawnChild({ queue: "child-q", payload: { child: true } });
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+    worker.registerWorker("child-q", new TestWorker());
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.blockParentAndScheduleChild).toHaveBeenCalledWith(1, {
+      queue: "child-q",
+      payload: { child: true },
+    });
+    expect(dao.finish).not.toHaveBeenCalled();
+  });
+
+  it("wakes blocked parent after child finishes successfully", async () => {
+    const dao = createDao({
+      wakeParentOnChildTerminal: jest.fn(async () =>
+        some({ id: 99, queue: "parent-q" }),
+      ),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    worker.registerWorker("q", new TestWorker());
+    worker.registerWorker("parent-q", new TestWorker());
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(1);
+  });
+
+  it("wakes blocked parent only on terminal child failure", async () => {
+    const dao = createDao({
+      fail: jest.fn(async () => TaskStatus.error),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    taskWorker.process.mockImplementation(async () => {
+      throw new Error("boom");
+    });
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(1);
   });
 });

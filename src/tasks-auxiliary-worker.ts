@@ -58,7 +58,7 @@ export class TasksAuxiliaryWorker {
         .failStalled()
         .then((res) => {
           if (res.nonEmpty) {
-            logger.info(`Marked stalled as failed: ${res.mkString(", ")}`);
+            logger.info(`Processed stalled tasks: ${res.mkString(", ")}`);
           }
         })
         .catch((e) => {

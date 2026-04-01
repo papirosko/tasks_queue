@@ -18,6 +18,7 @@ export class ManageTasksQueueService {
   private mapTaskRow(row: any): TaskDto {
     return new TaskDto(
       row["id"],
+      option(row["parent_id"]).map(Number),
       row["queue"],
       row["created"],
       row["initial_start"],

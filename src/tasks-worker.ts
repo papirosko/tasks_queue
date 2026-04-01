@@ -1,6 +1,6 @@
 /* eslint-disable */
 
-import {TaskContext, TaskStatus } from './tasks-model.js';
+import { TaskContext, TaskStatus } from "./tasks-model.js";
 
 /**
  * Base class for a worker that processes tasks from a queue.

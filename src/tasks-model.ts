@@ -12,6 +12,10 @@ export enum TaskStatus {
    */
   in_progress = "in_progress",
   /**
+   * Task is waiting for its child task to reach a terminal state.
+   */
+  blocked = "blocked",
+  /**
    * Task was successfully finished.
    */
   finished = "finished",
@@ -166,6 +170,10 @@ export interface ScheduledTask {
    */
   id: number;
   /**
+   * Parent task id if this task was spawned by another task.
+   */
+  parentId?: number;
+  /**
    * Task details, that were specified during task creation..
    * */
   payload?: object;
@@ -181,6 +189,8 @@ export interface ScheduledTask {
   currentAttempt: number;
   maxAttempts: number;
 }
+
+export type SpawnChildTaskDetails = ScheduleTaskDetails;
 
 /**
  * If this error is thrown from the process method of the task, then returned payload
@@ -199,6 +209,27 @@ export class TaskFailed extends Error {
 }
 
 export interface TaskContext {
+  /**
+   * Current task id in persistent storage.
+   */
+  taskId: number;
+  /**
+   * Current processing attempt number starting from 1.
+   */
   currentAttempt: number;
+  /**
+   * Maximum number of attempts allowed for this task.
+   */
   maxAttempts: number;
+  /**
+   * Request spawning a single child task after the current `process()` call completes successfully.
+   *
+   * The child is not created immediately. The runtime stores the request in memory and
+   * the queue core creates the child task only after `process()` returns without throwing.
+   *
+   * Only one child task can be requested during a single `process()` execution.
+   *
+   * @param task one-time child task details
+   */
+  spawnChild(task: SpawnChildTaskDetails): void;
 }

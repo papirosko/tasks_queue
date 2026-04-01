@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.0
+
+### Added
+- Added support for parent-child task relations with `parent_id`.
+- Added `blocked` task status for multi-step orchestration flows.
+
+### Migration
+Apply the following SQL to existing databases:
+
+```sql
+ALTER TABLE tasks_queue
+    ADD COLUMN IF NOT EXISTS parent_id int4 DEFAULT NULL
+        REFERENCES tasks_queue (id) ON DELETE SET NULL;
+
+ALTER TABLE tasks_queue
+    DROP CONSTRAINT IF EXISTS tasks_queue_status_check;
+
+ALTER TABLE tasks_queue
+    ADD CONSTRAINT tasks_queue_status_check
+        CHECK (status IN ('pending', 'in_progress', 'blocked', 'finished', 'error'));
+
+CREATE INDEX IF NOT EXISTS tasks_queue_parent_id_idx
+    ON tasks_queue (parent_id);
+```
+
 ## 1.4.2
 
 ### Added

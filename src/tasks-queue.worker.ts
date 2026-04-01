@@ -1,13 +1,42 @@
-import { mutable, option, Try } from "scats";
+import { mutable, none, option, Option, some, Try } from "scats";
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import log4js from "log4js";
 import { MetricsService } from "application-metrics";
 import { TasksPipeline } from "./tasks-pipeline.js";
-import { ScheduledTask, TaskFailed } from "./tasks-model.js";
+import {
+  ScheduleTaskDetails,
+  ScheduledTask,
+  TaskContext,
+  TaskFailed,
+  TaskStatus,
+} from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
 
 const logger = log4js.getLogger("TasksQueueWorker");
+
+class RuntimeTaskContext implements TaskContext {
+  private childTask: Option<ScheduleTaskDetails> = none;
+
+  constructor(
+    readonly taskId: number,
+    readonly currentAttempt: number,
+    readonly maxAttempts: number,
+  ) {}
+
+  spawnChild(task: ScheduleTaskDetails): void {
+    if (this.childTask.nonEmpty) {
+      throw new Error(
+        `Task ${this.taskId} attempted to spawn more than one child task`,
+      );
+    }
+    this.childTask = some(task);
+  }
+
+  get spawnedChild(): Option<ScheduleTaskDetails> {
+    return this.childTask;
+  }
+}
 
 export class TasksQueueWorker {
   private readonly workers = new mutable.HashMap<string, TasksWorker>();
@@ -53,6 +82,11 @@ export class TasksQueueWorker {
     MetricsService.counter("tasks_queue_started").inc();
     await this.workers.get(task.queue).match({
       some: async (worker) => {
+        const context = new RuntimeTaskContext(
+          task.id,
+          task.currentAttempt,
+          task.maxAttempts,
+        );
         try {
           Try(() => worker.starting(task.id, task.payload)).tapFailure((e) =>
             logger.warn(
@@ -60,12 +94,30 @@ export class TasksQueueWorker {
               e,
             ),
           );
-          await worker.process(task.payload, {
-            maxAttempts: task.maxAttempts,
-            currentAttempt: task.currentAttempt,
-          });
-          if (option(task.repeatType).isEmpty) {
+          await worker.process(task.payload, context);
+          if (context.spawnedChild.nonEmpty) {
+            if (option(task.repeatType).nonEmpty) {
+              throw new Error(
+                `Periodic task ${task.id} cannot spawn child tasks`,
+              );
+            }
+            await context.spawnedChild.mapPromise(async (spawnedChild) => {
+              const childTaskId =
+                await this.tasksQueueDao.blockParentAndScheduleChild(
+                  task.id,
+                  spawnedChild,
+                );
+              childTaskId.foreach(() =>
+                this.tasksScheduled(spawnedChild.queue),
+              );
+              return spawnedChild;
+            });
+          } else if (option(task.repeatType).isEmpty) {
             await this.tasksQueueDao.finish(task.id);
+            const parent = await this.tasksQueueDao.wakeParentOnChildTerminal(
+              task.id,
+            );
+            parent.foreach((p) => this.tasksScheduled(p.queue));
           } else {
             await this.tasksQueueDao.rescheduleIfPeriodic(task.id);
           }
@@ -84,6 +136,12 @@ export class TasksQueueWorker {
             (e as any)["message"] || e,
             e instanceof TaskFailed ? e.payload : task.payload,
           );
+          if (finalStatus === TaskStatus.error) {
+            const parent = await this.tasksQueueDao.wakeParentOnChildTerminal(
+              task.id,
+            );
+            parent.foreach((p) => this.tasksScheduled(p.queue));
+          }
           (
             await Try.promise(() =>
               worker.failed(task.id, task.payload, finalStatus, e),

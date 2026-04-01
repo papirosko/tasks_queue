@@ -23,6 +23,46 @@ import {
 export class TasksQueueDao {
   constructor(private readonly pool: pg.Pool) {}
 
+  /**
+   * Insert a one-time task using an existing database client.
+   *
+   * This helper is shared by regular scheduling and parent-child orchestration flows,
+   * so child tasks can be created atomically together with parent status updates.
+   *
+   * @param cl active database client
+   * @param task one-time task parameters
+   * @param parentId optional parent task id
+   * @returns created task id if insert succeeded
+   */
+  private async insertOneTimeTask(
+    cl: PoolClient,
+    task: ScheduleTaskDetails,
+    parentId?: number,
+  ): Promise<Option<number>> {
+    const now = new Date();
+    const res = await cl.query(
+      `insert into tasks_queue (parent_id, queue, created, status, priority, payload, timeout, max_attempts,
+                                        start_after, initial_start, backoff, backoff_type)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+               returning id`,
+      [
+        option(parentId).orNull,
+        task.queue,
+        now,
+        TaskStatus.pending,
+        option(task.priority).getOrElseValue(0),
+        option(task.payload).orNull,
+        option(task.timeout).getOrElseValue(TimeUtils.hour),
+        option(task.retries).getOrElseValue(1),
+        option(task.startAfter).orNull,
+        option(task.startAfter).getOrElseValue(now),
+        option(task.backoff).getOrElseValue(TimeUtils.minute),
+        option(task.backoffType).getOrElseValue(BackoffType.linear),
+      ],
+    );
+    return Collection.from(res.rows).headOption.map((r) => r.id as number);
+  }
+
   private async withClient<T>(
     cb: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -43,28 +83,58 @@ export class TasksQueueDao {
    */
   @Metric()
   async schedule(task: ScheduleTaskDetails): Promise<Option<number>> {
-    const now = new Date();
     return await this.withClient(async (cl) => {
-      const res = await cl.query(
-        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
-                                          start_after, initial_start, backoff, backoff_type)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                 returning id`,
-        [
-          task.queue,
-          now,
-          TaskStatus.pending,
-          option(task.priority).getOrElseValue(0),
-          option(task.payload).orNull,
-          option(task.timeout).getOrElseValue(TimeUtils.hour),
-          option(task.retries).getOrElseValue(1),
-          option(task.startAfter).orNull,
-          option(task.startAfter).getOrElseValue(now),
-          option(task.backoff).getOrElseValue(TimeUtils.minute),
-          option(task.backoffType).getOrElseValue(BackoffType.linear),
-        ],
-      );
-      return Collection.from(res.rows).headOption.map((r) => r.id as number);
+      return this.insertOneTimeTask(cl, task);
+    });
+  }
+
+  /**
+   * Atomically transition a parent task into `blocked` state and create its child task.
+   *
+   * This method is intended for one-time parent tasks only. Parent blocking and child creation
+   * happen in the same transaction, so the system never observes a blocked parent without a child
+   * or a child without its parent being blocked.
+   *
+   * @param parentTaskId parent task currently being processed
+   * @param childTask one-time child task details
+   * @returns created child task id
+   */
+  @Metric()
+  async blockParentAndScheduleChild(
+    parentTaskId: number,
+    childTask: ScheduleTaskDetails,
+  ): Promise<Option<number>> {
+    return await this.withClient(async (cl) => {
+      await cl.query("BEGIN");
+      try {
+        const parentRes = await cl.query(
+          `update tasks_queue
+               set status = $1,
+                   finished = null,
+                   error = null
+             where id = $2
+               and status = $3
+               and repeat_type is null
+             returning id`,
+          [TaskStatus.blocked, parentTaskId, TaskStatus.in_progress],
+        );
+        if ((parentRes.rowCount ?? 0) !== 1) {
+          throw new Error(
+            `Failed to block parent task ${parentTaskId} for child scheduling`,
+          );
+        }
+
+        const childTaskId = await this.insertOneTimeTask(
+          cl,
+          childTask,
+          parentTaskId,
+        );
+        await cl.query("COMMIT");
+        return childTaskId;
+      } catch (e) {
+        await cl.query("ROLLBACK");
+        throw e;
+      }
     });
   }
 
@@ -177,7 +247,7 @@ export class TasksQueueDao {
 
     return await this.withClient(async (cl) => {
       const query = `
-                WITH selected AS (SELECT id, payload, queue
+                WITH selected AS (SELECT id, parent_id, payload, queue
                                   FROM tasks_queue
                                   WHERE status = $3
                                     AND queue IN (${placeholders})
@@ -195,6 +265,7 @@ export class TasksQueueDao {
                 WHERE tasks_queue.id = selected.id
                 RETURNING 
                     tasks_queue.id, 
+                    tasks_queue.parent_id,
                     tasks_queue.payload, 
                     tasks_queue.queue,
                     tasks_queue.repeat_type,
@@ -206,6 +277,7 @@ export class TasksQueueDao {
       return Collection.from(res.rows).headOption.map((r) => {
         return {
           id: r["id"],
+          parentId: option(r["parent_id"]).map(Number).orUndefined,
           payload: option(r["payload"]).orUndefined,
           queue: r["queue"],
           repeatType: option(r["repeat_type"]).orUndefined,
@@ -274,6 +346,43 @@ export class TasksQueueDao {
                    and status = $4`,
         [TaskStatus.finished, now, taskId, TaskStatus.in_progress],
       );
+    });
+  }
+
+  /**
+   * Wake a blocked parent task after its child has reached a terminal state.
+   *
+   * The parent is moved back to `pending` and becomes immediately eligible for polling.
+   * No update is performed if the child has no parent or if the parent is not currently blocked.
+   *
+   * @param childTaskId child task that has just completed terminally
+   * @returns parent id and queue if a blocked parent was woken
+   */
+  @Metric()
+  async wakeParentOnChildTerminal(
+    childTaskId: number,
+  ): Promise<Option<{ id: number; queue: string }>> {
+    const now = new Date();
+    return await this.withClient(async (cl) => {
+      const res = await cl.query(
+        `update tasks_queue p
+             set status = $1,
+                 start_after = $2,
+                 finished = null,
+                 error = null
+           where p.id = (
+               select parent_id
+                 from tasks_queue
+                where id = $3
+           )
+             and p.status = $4
+           returning p.id, p.queue`,
+        [TaskStatus.pending, now, childTaskId, TaskStatus.blocked],
+      );
+      return Collection.from(res.rows).headOption.map((r) => ({
+        id: Number(r["id"]),
+        queue: String(r["queue"]),
+      }));
     });
   }
 
@@ -411,6 +520,7 @@ export class TasksQueueDao {
     const now = new Date();
 
     return await this.withClient(async (cl) => {
+      // TODO: extract shared fail/retry SQL so fail() and failStalled() use one transition definition.
       const res = await cl.query(
         `
             UPDATE tasks_queue
@@ -455,31 +565,86 @@ export class TasksQueueDao {
   }
 
   /**
-   * Marks all stalled tasks as failed.
-   * The status field will be set to 'error'. A message 'Timeout' will be written into the 'error' field.
-   * The finished field will be set to current timestamp.
+   * Process all stalled in-progress tasks.
    *
-   * To be updated The task should have
+   * For each stalled task:
+   * - if retries remain, it is requeued back to `pending` using the same backoff formula as regular failures
+   * - otherwise, it is marked as terminal `error` with `Timeout`
+   *
+   * If a terminally failed stalled task is a child task, its blocked parent is woken in the same transaction.
+   *
+   * To be updated the task should have
    *  - status='in_progress'
    *  - defined timeout and started + timeout should be less than current timestamp
-   * @return ids of the updated tasks.
+   *
+   * @return ids of stalled tasks whose status was updated
    */
   @Metric()
   async failStalled(): Promise<Collection<number>> {
     const now = new Date();
     return await this.withClient(async (cl) => {
-      const res = await cl.query(
-        `update tasks_queue
-                 set status=$1,
-                     finished=$2,
-                     error=$3
-                 where status = $4
-                   and timeout is not null
-                   and started + timeout * interval '1  ms' < $5
-                 returning id`,
-        [TaskStatus.error, now, "Timeout", TaskStatus.in_progress, now],
-      );
-      return Collection.from(res.rows).map((r) => r.id as number);
+      await cl.query("BEGIN");
+      try {
+        // TODO: extract shared fail/retry SQL so failStalled() and fail() use one transition definition.
+        const res = await cl.query(
+          `with updated as (
+               update tasks_queue child
+                  set finished = $1,
+                      error = $2,
+                      status = case
+                                   when attempt < max_attempts then $3
+                                   else $4
+                               end,
+                      start_after = case
+                                        when attempt < max_attempts then
+                                            $1::timestamp + (
+                                                case backoff_type
+                                                    when 'constant' then backoff
+                                                    when 'linear' then (backoff * attempt)
+                                                    when 'exponential' then (backoff * power(2, (attempt - 1)))
+                                                    else backoff
+                                                end
+                                            ) * interval '1 millisecond'
+                                        else null
+                                    end
+                where child.status = $5
+                  and child.timeout is not null
+                  and child.started + child.timeout * interval '1 millisecond' < $6
+                returning child.id, child.parent_id, child.status
+             ),
+             woken as (
+               update tasks_queue parent
+                  set status = $3,
+                      start_after = $1,
+                      finished = null,
+                      error = null
+                 where parent.id in (
+                     select parent_id
+                       from updated
+                      where parent_id is not null
+                        and status = $4
+                 )
+                   and parent.status = $7
+               returning parent.id
+             )
+             select id
+               from updated`,
+          [
+            now, // $1
+            "Timeout", // $2
+            TaskStatus.pending, // $3
+            TaskStatus.error, // $4
+            TaskStatus.in_progress, // $5
+            now, // $6
+            TaskStatus.blocked, // $7
+          ],
+        );
+        await cl.query("COMMIT");
+        return Collection.from(res.rows).map((r) => r.id as number);
+      } catch (e) {
+        await cl.query("ROLLBACK");
+        throw e;
+      }
     });
   }
 
