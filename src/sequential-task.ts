@@ -179,7 +179,9 @@ export abstract class SequentialTask<
         await this.processStep(step, payload.userPayload, context);
       },
       none: async () => {
-        throw new Error("Sequential task requires at least one configured step");
+        throw new Error(
+          "Sequential task requires at least one configured step",
+        );
       },
     });
   }
@@ -221,7 +223,9 @@ export abstract class SequentialTask<
         });
       },
       none: async () => {
-        throw new Error("Sequential task requires at least one configured step");
+        throw new Error(
+          "Sequential task requires at least one configured step",
+        );
       },
     });
   }
