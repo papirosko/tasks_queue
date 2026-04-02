@@ -9,7 +9,7 @@ Both abstractions use the same payload envelope:
 
 ```ts
 new MultiStepPayload(
-    activeChildId,
+    activeChild,
     workflowPayload,
     userPayload
 );
@@ -17,9 +17,18 @@ new MultiStepPayload(
 
 Where:
 
-- `activeChildId` stores the currently running child task, if any
+- `activeChild` stores the currently running child task state, if any
 - `workflowPayload` stores orchestration state
 - `userPayload` stores business data
+
+`activeChild` is persisted as JSON and currently supports:
+
+```ts
+{
+    taskId: number;
+    allowFailure?: boolean;
+}
+```
 
 ## Common model
 
@@ -29,7 +38,7 @@ Workflow lifecycle:
 
 1. Parent task starts.
 2. Parent may call `context.spawnChild(...)`.
-3. After `process(...)` returns, the engine creates the child task and moves the parent to `blocked`.
+3. After `process(...)` returns, the engine creates the child task, persists `activeChild` in the parent payload, and moves the parent to `blocked`.
 4. When the child reaches terminal state, the engine wakes the parent.
 5. Parent is executed again and decides what to do next.
 
@@ -39,6 +48,7 @@ Important limitations:
 - Periodic tasks must not use `spawnChild(...)` directly.
 - Parent is woken only when child reaches terminal state.
 - `workflowPayload` is persisted as plain JSON, so store serializable values only.
+- `allowFailure` is orchestration metadata for the parent. It does not change the child task status.
 
 ## MultiStepTask
 
@@ -54,13 +64,36 @@ Use it when:
 Key methods:
 
 - `processNext(payload, context)` is called when there is no active child
-- `childFinished(payload, childTask, context)` is called when child finished successfully
-- `childFailed(payload, childTask)` is called when child reached terminal error
+- `childFinished(payload, childTask, context, activeChild)` is called when child finished successfully
+- `childFailed(payload, childTask, context, activeChild)` is called when child reached terminal error
 
 Default behavior:
 
 - `childFinished(...)` calls `processNext(...)`
 - `childFailed(...)` throws and fails the parent task
+- `childTask.status` remains `error` even if the parent decides to continue workflow
+
+`childFailed(...)` is called when the parent wakes up after the child has already reached terminal `error`.
+If the child is retried and returns to `pending`, the parent remains `blocked` and `childFailed(...)`
+is not called yet.
+
+When a child is scheduled with:
+
+```ts
+context.spawnChild({
+    queue: "child-queue",
+    allowFailure: true,
+    payload: { ... }
+});
+```
+
+the runtime persists that policy into `payload.activeChild`, and the parent can inspect
+`activeChild.allowFailure` inside `childFailed(...)`.
+
+When a blocked parent wakes up after child completion, `TaskContext.resolvedChildTask`
+contains the resolved child snapshot for the current continuation pass. This is useful
+when the next workflow step needs to know whether the previous child finished successfully
+or terminally failed.
 
 ### Example: video processing with branching
 
@@ -74,12 +107,12 @@ type VideoPayload = {
     videoId: number;
     sourcePath: string;
     encodedPath?: string;
+    metadata?: Record<string, unknown>;
 };
 
 class EncodeUploadedVideoTask extends MultiStepTask<VideoPayload> {
     constructor(
-        private readonly videosDao: VideosDao,
-        private readonly transcoderBackend: TranscoderBackend
+        private readonly videosDao: VideosDao
     ) {
         super();
     }
@@ -132,20 +165,26 @@ class EncodeUploadedVideoTask extends MultiStepTask<VideoPayload> {
 
             case "metadata":
                 if (payload.userPayload.encodedPath) {
-                    const metadata = await this.transcoderBackend.readMetadata(
-                        payload.userPayload.encodedPath
-                    );
-                    await this.videosDao.saveMetadata(payload.userPayload.videoId, metadata);
-                }
-                await this.videosDao.updateStatus(payload.userPayload.videoId, "ready");
-                context.setPayload(
-                    payload.copy({
-                        workflowPayload: {
-                            ...payload.workflowPayload,
-                            stage: "done"
+                    context.spawnChild({
+                        queue: "read-video-metadata",
+                        allowFailure: true,
+                        payload: {
+                            videoId: payload.userPayload.videoId,
+                            encodedPath: payload.userPayload.encodedPath
                         }
-                    }).toJson
-                );
+                    });
+                } else {
+                    await this.videosDao.saveMetadata(payload.userPayload.videoId, {});
+                    await this.videosDao.updateStatus(payload.userPayload.videoId, "ready");
+                    context.setPayload(
+                        payload.copy({
+                            workflowPayload: {
+                                ...payload.workflowPayload,
+                                stage: "done"
+                            }
+                        }).toJson
+                    );
+                }
                 break;
 
             case "encode":
@@ -157,7 +196,8 @@ class EncodeUploadedVideoTask extends MultiStepTask<VideoPayload> {
     protected override async childFinished(
         payload: MultiStepPayload<VideoPayload>,
         childTask: TaskStateSnapshot,
-        context: TaskContext
+        context: TaskContext,
+        _activeChild: ActiveChildState
     ): Promise<void> {
         const stage = payload.workflowPayload["stage"] as VideoWorkflowPayload["stage"];
 
@@ -193,10 +233,52 @@ class EncodeUploadedVideoTask extends MultiStepTask<VideoPayload> {
                 break;
             }
 
+            case "metadata": {
+                await this.videosDao.saveMetadata(
+                    payload.userPayload.videoId,
+                    childTask.payload ?? {}
+                );
+                await this.videosDao.updateStatus(payload.userPayload.videoId, "ready");
+                const nextPayload = payload.copy({
+                    workflowPayload: {
+                        ...payload.workflowPayload,
+                        stage: "done"
+                    }
+                });
+                context.setPayload(nextPayload.toJson);
+                await this.processNext(nextPayload, context);
+                break;
+            }
+
             default:
                 await this.processNext(payload, context);
                 break;
         }
+    }
+
+    protected override async childFailed(
+        payload: MultiStepPayload<VideoPayload>,
+        childTask: TaskStateSnapshot,
+        context: TaskContext,
+        activeChild: ActiveChildState
+    ): Promise<void> {
+        const stage = payload.workflowPayload["stage"] as VideoWorkflowPayload["stage"];
+
+        if (stage === "metadata" && activeChild.allowFailure) {
+            await this.videosDao.saveMetadata(payload.userPayload.videoId, {});
+            await this.videosDao.updateStatus(payload.userPayload.videoId, "ready");
+            const nextPayload = payload.copy({
+                workflowPayload: {
+                    ...payload.workflowPayload,
+                    stage: "done"
+                }
+            });
+            context.setPayload(nextPayload.toJson);
+            await this.processNext(nextPayload, context);
+            return;
+        }
+
+        await super.childFailed(payload, childTask, context, activeChild);
     }
 }
 ```
@@ -231,10 +313,15 @@ Built-in behavior:
 - next step is executed automatically
 - terminal child failure fails the parent task
 
-### Example: happy-path video processing
+### Example: video processing with optional metadata fallback
+
+Notice the orchestration split in this example:
+
+- `metadata` starts a child task with `allowFailure: true`
+- `finalise` does not spawn any child tasks and only persists the final result
 
 ```ts
-type VideoStep = "scan" | "encode" | "metadata";
+type VideoStep = "scan" | "encode" | "metadata" | "finalise";
 
 type VideoPayload = {
     videoId: number;
@@ -246,7 +333,7 @@ class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
     constructor(
         private readonly videosDao: VideosDao
     ) {
-        super(Collection.of("scan", "encode", "metadata"));
+        super(Collection.of("scan", "encode", "metadata", "finalise"));
     }
 
     protected async processStep(
@@ -276,13 +363,74 @@ class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
                 break;
 
             case "metadata":
-                if (payload.encodedPath) {
-                    const metadata = await readVideoMetadata(payload.encodedPath);
-                    await this.videosDao.updateMetadata(payload.videoId, metadata);
+                if (!payload.encodedPath) {
+                    await this.videosDao.updateMetadata(payload.videoId, {});
+                    await this.videosDao.updateStatus(payload.videoId, "ready");
+                    break;
                 }
+                context.spawnChild({
+                    queue: "read-video-metadata",
+                    allowFailure: true,
+                    payload: {
+                        videoId: payload.videoId,
+                        encodedPath: payload.encodedPath
+                    }
+                });
+                break;
+
+            case "finalise":
+                await this.videosDao.updateMetadata(
+                    payload.videoId,
+                    context.resolvedChildTask
+                        .filter((t) => t.status === TaskStatus.finished)
+                        .flatMap(() => option(payload.metadata))
+                        .getOrElseValue({})
+                );
                 await this.videosDao.updateStatus(payload.videoId, "ready");
                 break;
         }
+    }
+
+    protected override async childFinished(
+        payload: MultiStepPayload<VideoPayload>,
+        childTask: TaskStateSnapshot,
+        context: TaskContext,
+        activeChild: ActiveChildState
+    ): Promise<void> {
+        if (payload.workflowPayload["step"] === "metadata") {
+            const nextPayload = payload.copy({
+                userPayload: {
+                    ...payload.userPayload,
+                    metadata: (childTask.payload ?? {}) as Record<string, unknown>
+                }
+            });
+            context.setPayload(nextPayload.toJson);
+            await super.childFinished(nextPayload, childTask, context, activeChild);
+            return;
+        }
+
+        await super.childFinished(payload, childTask, context, activeChild);
+    }
+
+    protected override async childFailed(
+        payload: MultiStepPayload<VideoPayload>,
+        childTask: TaskStateSnapshot,
+        context: TaskContext,
+        activeChild: ActiveChildState
+    ): Promise<void> {
+        if (payload.workflowPayload["step"] === "metadata" && activeChild.allowFailure) {
+            const nextPayload = payload.copy({
+                userPayload: {
+                    ...payload.userPayload,
+                    metadata: {}
+                }
+            });
+            context.setPayload(nextPayload.toJson);
+            await super.childFinished(nextPayload, childTask, context, activeChild);
+            return;
+        }
+
+        await super.childFailed(payload, childTask, context, activeChild);
     }
 }
 ```

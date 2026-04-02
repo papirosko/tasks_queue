@@ -1,4 +1,5 @@
 import { Collection, option } from "scats";
+import { ActiveChildState } from "./active-child-state.js";
 import { MultiStepPayload } from "./multi-step-payload.js";
 import { MultiStepTask } from "./multi-step-task.js";
 import { TaskContext, TaskStateSnapshot } from "./tasks-model.js";
@@ -149,6 +150,7 @@ export abstract class SequentialTask<
     payload: MultiStepPayload<TUserPayload>,
     _childTask: TaskStateSnapshot,
     context: TaskContext,
+    _activeChild: ActiveChildState,
   ): Promise<void> {
     await this.stepFromPayload(payload).match({
       some: async (currentStep) => {

@@ -4,8 +4,8 @@ import log4js from "log4js";
 import { MetricsService } from "application-metrics";
 import { TasksPipeline } from "./tasks-pipeline.js";
 import {
-  ScheduleTaskDetails,
   ScheduledTask,
+  SpawnChildTaskDetails,
   TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
   TaskFailed,
@@ -18,9 +18,10 @@ import { TimeUtils } from "./time-utils.js";
 const logger = log4js.getLogger("TasksQueueWorker");
 
 class RuntimeTaskContext implements TaskContext {
-  private childTask: Option<ScheduleTaskDetails> = none;
+  private childTask: Option<SpawnChildTaskDetails> = none;
   private _nextPayload: Option<object> = none;
   private lastPingAt: Option<number> = none;
+  resolvedChildTask: Option<TaskStateSnapshot> = none;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
@@ -42,7 +43,7 @@ class RuntimeTaskContext implements TaskContext {
     this.lastPingAt = some(now);
   }
 
-  spawnChild(task: ScheduleTaskDetails): void {
+  spawnChild(task: SpawnChildTaskDetails): void {
     if (this.childTask.nonEmpty) {
       throw new Error(
         `Task ${this.taskId} attempted to spawn more than one child task`,
@@ -59,7 +60,7 @@ class RuntimeTaskContext implements TaskContext {
     return this.tasksQueueDao.findTaskState(taskId);
   }
 
-  get spawnedChild(): Option<ScheduleTaskDetails> {
+  get spawnedChild(): Option<SpawnChildTaskDetails> {
     return this.childTask;
   }
 

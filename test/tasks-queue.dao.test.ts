@@ -55,4 +55,44 @@ describe("TasksQueueDao", () => {
     expect(query.mock.calls[1][0]).toContain("greatest(");
     expect(release).toHaveBeenCalled();
   });
+
+  it("persists active child allowFailure flag on parent payload when scheduling child", async () => {
+    const query: any = jest.fn();
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 7 }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 99 }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const { dao, release } = createDao(query);
+
+    await dao.blockParentAndScheduleChild(
+      7,
+      {
+        queue: "child-q",
+        payload: { child: true },
+        allowFailure: true,
+      },
+      {
+        workflowPayload: { stage: "scan" },
+        userPayload: { id: 1 },
+      },
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("set payload = $1"),
+      [
+        {
+          activeChild: {
+            taskId: 99,
+            allowFailure: true,
+          },
+          workflowPayload: { stage: "scan" },
+          userPayload: { id: 1 },
+        },
+        7,
+        TaskStatus.blocked,
+      ],
+    );
+    expect(release).toHaveBeenCalled();
+  });
 });

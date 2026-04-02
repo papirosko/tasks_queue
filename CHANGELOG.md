@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added `ActiveChildState` and `MultiStepPayload.activeChild` to persist active child orchestration metadata.
+- Added optional `allowFailure` flag to `TaskContext.spawnChild(...)` child scheduling details so parent workflows can continue from `childFailed(...)` without masking child `error` status.
+
+### Changed
+- `MultiStepTask.childFinished(...)` and `MultiStepTask.childFailed(...)` now receive `activeChild` metadata, and `childFailed(...)` also receives `context` for continuation flows.
+- `TaskContext` now exposes `resolvedChildTask` as `Option<TaskStateSnapshot>` during parent continuation after child resolution.
+- `MultiStepPayload.fromJson(...)` now reads both the new `activeChild` structure and legacy `activeChildId` payloads for backward compatibility.
+
 ## 1.5.0
 
 ### Added

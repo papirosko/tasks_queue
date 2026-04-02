@@ -1,5 +1,6 @@
+import { ActiveChildState } from "./active-child-state.js";
 import { MultiStepPayload } from "./multi-step-payload.js";
-import { none } from "scats";
+import { none, some } from "scats";
 import { TaskContext, TaskStateSnapshot, TaskStatus } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 
@@ -9,12 +10,12 @@ import { TasksWorker } from "./tasks-worker.js";
  * `MultiStepTask` expects task payload to follow the {@link MultiStepPayload} contract:
  * - `workflowPayload` stores orchestration state managed by the workflow itself
  * - `userPayload` stores domain-specific business data
- * - `activeChildId` stores the currently running child task, if any
+ * - `activeChild` stores the currently running child task state, if any
  *
  * Execution flow:
- * 1. If `activeChildId` is empty, the worker calls {@link processNext}.
- * 2. If `activeChildId` is present, the worker loads the child task through `context.findTask(...)`.
- * 3. Once the child is terminal, the worker clears `activeChildId`, persists updated payload,
+ * 1. If `activeChild` is empty, the worker calls {@link processNext}.
+ * 2. If `activeChild` is present, the worker loads the child task through `context.findTask(...)`.
+ * 3. Once the child is terminal, the worker clears `activeChild`, persists updated payload,
  *    and dispatches to {@link childFinished} or {@link childFailed}.
  * 4. Default `childFinished(...)` continues with {@link processNext}, while default
  *    `childFailed(...)` fails the parent task.
@@ -184,17 +185,19 @@ export abstract class MultiStepTask<
    */
   private async handleResolvedChild(
     payload: MultiStepPayload<TUserPayload>,
+    activeChild: ActiveChildState,
     childTask: TaskStateSnapshot,
     context: TaskContext,
   ): Promise<void> {
+    context.resolvedChildTask = some(childTask);
     const nextPayload = payload.copy({
-      activeChildId: none,
+      activeChild: none,
     });
     context.setPayload(nextPayload.toJson);
     if (childTask.status === TaskStatus.finished) {
-      await this.childFinished(nextPayload, childTask, context);
+      await this.childFinished(nextPayload, childTask, context, activeChild);
     } else if (childTask.status === TaskStatus.error) {
-      await this.childFailed(nextPayload, childTask);
+      await this.childFailed(nextPayload, childTask, context, activeChild);
     } else {
       throw new Error(
         `Active child task ${childTask.id} is not terminal: ${childTask.status}`,
@@ -219,6 +222,7 @@ export abstract class MultiStepTask<
     payload: MultiStepPayload<TUserPayload>,
     _childTask: TaskStateSnapshot,
     context: TaskContext,
+    _activeChild: ActiveChildState,
   ): Promise<void> {
     await this.processNext(payload, context);
   }
@@ -231,6 +235,8 @@ export abstract class MultiStepTask<
   protected async childFailed(
     payload: MultiStepPayload<TUserPayload>,
     childTask: { id: number; error?: string },
+    _context: TaskContext,
+    _activeChild: ActiveChildState,
   ): Promise<void> {
     throw new Error(
       `Child task ${childTask.id} failed: ${childTask.error ?? "Unknown error"}`,
@@ -242,15 +248,20 @@ export abstract class MultiStepTask<
     context: TaskContext,
   ): Promise<void> {
     const typedPayload = MultiStepPayload.fromJson<TUserPayload>(payload);
-    await typedPayload.activeChildId.match({
-      some: async (activeChildId) => {
-        const childTask = await context.findTask(activeChildId);
+    await typedPayload.activeChild.match({
+      some: async (activeChild) => {
+        const childTask = await context.findTask(activeChild.taskId);
         await childTask.match({
           some: async (task: TaskStateSnapshot) => {
-            await this.handleResolvedChild(typedPayload, task, context);
+            await this.handleResolvedChild(
+              typedPayload,
+              activeChild,
+              task,
+              context,
+            );
           },
           none: async () => {
-            throw new Error(`Active child task ${activeChildId} not found`);
+            throw new Error(`Active child task ${activeChild.taskId} not found`);
           },
         });
       },

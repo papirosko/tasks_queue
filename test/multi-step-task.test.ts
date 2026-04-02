@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { none, some } from "scats";
+import { ActiveChildState } from "../src/active-child-state.js";
 import { MultiStepPayload } from "../src/multi-step-payload.js";
 import { MultiStepTask } from "../src/multi-step-task.js";
 import {
@@ -9,8 +10,33 @@ import {
 } from "../src/tasks-model.js";
 
 class TestMultiStepTask extends MultiStepTask<{ step: string }> {
-  protected override async processNext(): Promise<void> {
+  protected override async processNext(
+    _payload: MultiStepPayload<{ step: string }>,
+    _context: TaskContext,
+  ): Promise<void> {
     return;
+  }
+}
+
+class AllowFailureMultiStepTask extends MultiStepTask<{ step: string }> {
+  protected override async processNext(
+    _payload: MultiStepPayload<{ step: string }>,
+    _context: TaskContext,
+  ): Promise<void> {
+    return;
+  }
+
+  protected override async childFailed(
+    payload: MultiStepPayload<{ step: string }>,
+    childTask: { id: number; error?: string },
+    context: TaskContext,
+    activeChild: ActiveChildState,
+  ): Promise<void> {
+    if (activeChild.allowFailure) {
+      await this.processNext(payload, context);
+      return;
+    }
+    await super.childFailed(payload, childTask, context, activeChild);
   }
 }
 
@@ -22,6 +48,7 @@ const createContext = (): TaskContext => ({
   setPayload: jest.fn(),
   findTask: jest.fn(async () => none),
   spawnChild: jest.fn(),
+  resolvedChildTask: none,
 });
 
 describe("MultiStepTask", () => {
@@ -55,7 +82,9 @@ describe("MultiStepTask", () => {
 
     await task.process(
       {
-        activeChildId: 42,
+        activeChild: {
+          taskId: 42,
+        },
         userPayload: { step: "waiting" },
       },
       context,
@@ -64,6 +93,16 @@ describe("MultiStepTask", () => {
     expect(context.setPayload).toHaveBeenCalledWith({
       workflowPayload: {},
       userPayload: { step: "waiting" },
+    });
+    expect(context.resolvedChildTask.isDefined).toBe(true);
+    context.resolvedChildTask.foreach((childTask) => {
+      expect(childTask).toEqual({
+        id: 42,
+        parentId: 1,
+        status: TaskStatus.finished,
+        payload: undefined,
+        error: undefined,
+      });
     });
     expect(childFinishedSpy).toHaveBeenCalled();
   });
@@ -86,11 +125,74 @@ describe("MultiStepTask", () => {
     await expect(
       task.process(
         {
-          activeChildId: 42,
+          activeChild: {
+            taskId: 42,
+          },
           userPayload: { step: "waiting" },
         },
         context,
       ),
     ).rejects.toThrow("Child task 42 failed: boom");
+  });
+
+  it("continues workflow when child failure is allowed", async () => {
+    const task = new AllowFailureMultiStepTask();
+    const context = {
+      ...createContext(),
+      findTask: jest.fn(async () =>
+        some({
+          id: 42,
+          parentId: 1,
+          status: TaskStatus.error,
+          payload: undefined,
+          error: "boom",
+        } as TaskStateSnapshot),
+      ),
+    };
+    const processNextSpy = jest.spyOn(task as any, "processNext");
+
+    await task.process(
+      {
+        activeChild: {
+          taskId: 42,
+          allowFailure: true,
+        },
+        userPayload: { step: "waiting" },
+      },
+      context,
+    );
+
+    expect(context.setPayload).toHaveBeenCalledWith({
+      workflowPayload: {},
+      userPayload: { step: "waiting" },
+    });
+    expect(context.resolvedChildTask.isDefined).toBe(true);
+    context.resolvedChildTask.foreach((childTask) => {
+      expect(childTask).toEqual({
+        id: 42,
+        parentId: 1,
+        status: TaskStatus.error,
+        payload: undefined,
+        error: "boom",
+      });
+    });
+    expect(processNextSpy).toHaveBeenCalledWith(
+      new MultiStepPayload(none, {}, { step: "waiting" }),
+      context,
+    );
+  });
+
+  it("reads legacy activeChildId payloads for backward compatibility", async () => {
+    const payload = MultiStepPayload.fromJson<{ step: string }>({
+      activeChildId: 42,
+      workflowPayload: { stage: "scan" },
+      userPayload: { step: "waiting" },
+    });
+
+    expect(payload.activeChild.isDefined).toBe(true);
+    payload.activeChild.foreach((activeChild) => {
+      expect(activeChild.taskId).toBe(42);
+      expect(activeChild.allowFailure).toBe(false);
+    });
   });
 });

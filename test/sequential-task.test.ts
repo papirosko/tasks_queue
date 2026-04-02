@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { Collection, none } from "scats";
+import { Collection, none, some } from "scats";
 import { MultiStepPayload } from "../src/multi-step-payload.js";
 import { SequentialTask } from "../src/sequential-task.js";
 import { TaskContext, TaskStateSnapshot } from "../src/tasks-model.js";
@@ -34,6 +34,29 @@ class RecordingSequentialTask extends SequentialTask<
   }
 }
 
+class ContextAwareSequentialTask extends SequentialTask<
+  "scan" | "encode" | "metadata",
+  VideoPayload
+> {
+  readonly seenResolvedChildStatuses: string[] = [];
+
+  constructor() {
+    super(Collection.of("scan", "encode", "metadata"));
+  }
+
+  protected override async processStep(
+    step: "scan" | "encode" | "metadata",
+    _payload: VideoPayload,
+    context: TaskContext,
+  ): Promise<void> {
+    if (step === "encode") {
+      context.resolvedChildTask.foreach((childTask) => {
+        this.seenResolvedChildStatuses.push(childTask.status);
+      });
+    }
+  }
+}
+
 const createContext = (): TaskContext => ({
   taskId: 1,
   currentAttempt: 1,
@@ -42,6 +65,7 @@ const createContext = (): TaskContext => ({
   setPayload: jest.fn(),
   findTask: jest.fn(async () => none),
   spawnChild: jest.fn(),
+  resolvedChildTask: none,
 });
 
 describe("SequentialTask", () => {
@@ -121,5 +145,34 @@ describe("SequentialTask", () => {
 
     expect(context.setPayload).not.toHaveBeenCalled();
     expect(processStepSpy).not.toHaveBeenCalled();
+  });
+
+  it("exposes resolvedChildTask to the next sequential step after child completion", async () => {
+    const task = new ContextAwareSequentialTask();
+    const context = {
+      ...createContext(),
+      findTask: jest.fn(async () =>
+        some({
+          id: 10,
+          parentId: 1,
+          status: "finished",
+          payload: undefined,
+          error: undefined,
+        } as TaskStateSnapshot),
+      ),
+    };
+
+    await task.process(
+      {
+        activeChild: {
+          taskId: 10,
+        },
+        workflowPayload: { step: "scan" },
+        userPayload: { videoId: 42 },
+      },
+      context,
+    );
+
+    expect(task.seenResolvedChildStatuses).toEqual(["finished"]);
   });
 });

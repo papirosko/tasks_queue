@@ -7,6 +7,7 @@ export * from "./tasks-queue.module.js";
 export * from "./tasks-queue.service.js";
 export * from "./tasks-queue-async-options.js";
 export * from "./tasks-worker.js";
+export * from "./active-child-state.js";
 export * from "./multi-step-payload.js";
 export * from "./multi-step-task.js";
 export * from "./sequential-task.js";

@@ -41,7 +41,7 @@ For long-running workers that need periodic liveness updates, see [docs/heartbea
 Additional documentation:
 
 - [docs/heartbeat.md](docs/heartbeat.md) - how task heartbeats work and when to call `TaskContext.ping()` in long-running workers.
-- [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md) - how to build parent-child workflows with `MultiStepTask`, `SequentialTask`, and `MultiStepPayload`.
+- [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md) - how to build parent-child workflows with `MultiStepTask`, `SequentialTask`, `MultiStepPayload`, and optional child `allowFailure` orchestration.
 
 
 Register the queue module in your app. You have to provide pg.Pool

@@ -192,7 +192,15 @@ export interface ScheduledTask {
   maxAttempts: number;
 }
 
-export type SpawnChildTaskDetails = ScheduleTaskDetails;
+export interface SpawnChildTaskDetails extends ScheduleTaskDetails {
+  /**
+   * If true, parent workflow may decide to continue when this child ends in terminal `error`.
+   *
+   * The child task itself still keeps `status='error'`. This flag affects only parent-side
+   * orchestration metadata persisted in `MultiStepPayload.activeChild`.
+   */
+  allowFailure?: boolean;
+}
 
 export interface TaskStateSnapshot {
   id: number;
@@ -234,6 +242,14 @@ export interface TaskContext {
    */
   maxAttempts: number;
   /**
+   * Snapshot of the child task that has just been resolved for the current parent wake-up pass.
+   *
+   * This field is populated only for multi-step parent workflows after a previously blocked
+   * child has reached terminal `finished` or terminal `error` and the parent is executing the
+   * continuation path in the same runtime context.
+   */
+  resolvedChildTask: Option<TaskStateSnapshot>;
+  /**
    * Persist a heartbeat for the current task to prevent false stalled detection
    * during long-running processing.
    *
@@ -265,6 +281,9 @@ export interface TaskContext {
    * the queue core creates the child task only after `process()` returns without throwing.
    *
    * Only one child task can be requested during a single `process()` execution.
+   * If `task.allowFailure` is set, the runtime persists that policy into
+   * `MultiStepPayload.activeChild`, so parent workflow may inspect it later in
+   * `childFailed(...)`.
    *
    * @param task one-time child task details
    */

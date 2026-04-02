@@ -4,6 +4,7 @@ import type {
   ScheduleCronTaskDetails,
   SchedulePeriodicTaskDetails,
   ScheduleTaskDetails,
+  SpawnChildTaskDetails,
 } from "./tasks-model.js";
 import {
   BackoffType,
@@ -22,6 +23,7 @@ import {
   PeriodicScheduleUtils,
 } from "./periodic-schedule-utils.js";
 import { MultiStepPayload } from "./multi-step-payload.js";
+import { ActiveChildState } from "./active-child-state.js";
 
 export class TasksQueueDao {
   constructor(private readonly pool: pg.Pool) {}
@@ -105,7 +107,7 @@ export class TasksQueueDao {
   @Metric()
   async blockParentAndScheduleChild(
     parentTaskId: number,
-    childTask: ScheduleTaskDetails,
+    childTask: SpawnChildTaskDetails,
     parentPayload: object,
   ): Promise<Option<number>> {
     return await this.withClient(async (cl) => {
@@ -141,7 +143,9 @@ export class TasksQueueDao {
                  and status = $3`,
             [
               MultiStepPayload.fromJson(parentPayload).copy({
-                activeChildId: option(id),
+                activeChild: option(
+                  new ActiveChildState(id, childTask.allowFailure === true),
+                ),
               }).toJson,
               parentTaskId,
               TaskStatus.blocked,
