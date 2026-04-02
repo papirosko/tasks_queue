@@ -643,7 +643,7 @@ export class TasksQueueDao {
                 payload     = $7,
                 result      = CASE
                                   WHEN attempt < max_attempts THEN NULL
-                                  ELSE $8
+                                  ELSE $8::jsonb
                     END
             WHERE id = $5
               AND status = $6

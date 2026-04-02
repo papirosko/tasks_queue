@@ -125,6 +125,30 @@ describe("TasksQueueDao", () => {
     expect(release).toHaveBeenCalled();
   });
 
+  it("casts terminal failure result to jsonb in fail transition", async () => {
+    const query = jest.fn(async () => ({
+      rows: [{ status: "error" }],
+    }));
+    const { dao, release } = createDao(query);
+
+    await dao.fail(11, "boom", { state: "failed" }, { partial: true });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("ELSE $8::jsonb"),
+      expect.arrayContaining([
+        expect.any(Date),
+        "boom",
+        TaskStatus.pending,
+        TaskStatus.error,
+        11,
+        TaskStatus.in_progress,
+        { state: "failed" },
+        { partial: true },
+      ]),
+    );
+    expect(release).toHaveBeenCalled();
+  });
+
   it("clears finished tasks only when all ancestors are finished", async () => {
     const now = new Date("2026-04-02T10:00:00.000Z");
     jest.useFakeTimers().setSystemTime(now);
