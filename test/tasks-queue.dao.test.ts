@@ -124,4 +124,23 @@ describe("TasksQueueDao", () => {
     });
     expect(release).toHaveBeenCalled();
   });
+
+  it("clears finished tasks only when all ancestors are finished", async () => {
+    const now = new Date("2026-04-02T10:00:00.000Z");
+    jest.useFakeTimers().setSystemTime(now);
+    const query = jest.fn(async () => ({ rows: [] }));
+    const { dao, release } = createDao(query);
+
+    await dao.clearFinished();
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("with recursive ancestors as"),
+      [TaskStatus.finished, new Date(now.getTime() - 24 * 60 * 60 * 1000)],
+    );
+    const [[sql]] = query.mock.calls as unknown as [[string, unknown[]]];
+    expect(sql).toContain("ancestors.task_id = task.id");
+    expect(sql).toContain("ancestors.status <> $1");
+    expect(release).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
 });

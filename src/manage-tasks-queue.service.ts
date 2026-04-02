@@ -134,7 +134,9 @@ export class ManageTasksQueueService {
    * - `finished`
    *
    * Tasks in `in_progress` state are never deleted because removing an actively
-   * processed task can break worker execution semantics.
+   * processed task can break worker execution semantics. Tasks that still have
+   * an unfinished ancestor in the parent chain are also preserved, because
+   * removing them can break parent-child workflow recovery.
    *
    * @param taskId task identifier
    * @returns true if the task was deleted, false if it was not found or is in a non-deletable status
@@ -142,12 +144,35 @@ export class ManageTasksQueueService {
   async deleteTask(taskId: number): Promise<boolean> {
     const res = await this.pool.query(
       `
+            with recursive ancestors as (
+                select parent.id, parent.parent_id, parent.status
+                from tasks_queue child
+                         join tasks_queue parent on parent.id = child.parent_id
+                where child.id = $1
+
+                union all
+
+                select parent.id, parent.parent_id, parent.status
+                from ancestors
+                         join tasks_queue parent on parent.id = ancestors.parent_id
+            )
             delete
             from tasks_queue
             where id = $1
               and status in ($2, $3, $4)
+              and not exists (
+                select 1
+                from ancestors
+                where status <> $5
+              )
         `,
-      [taskId, TaskStatus.pending, TaskStatus.error, TaskStatus.finished],
+      [
+        taskId,
+        TaskStatus.pending,
+        TaskStatus.error,
+        TaskStatus.finished,
+        TaskStatus.finished,
+      ],
     );
     return (res.rowCount ?? 0) > 0;
   }

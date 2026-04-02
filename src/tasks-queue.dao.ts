@@ -779,7 +779,8 @@ export class TasksQueueDao {
   /**
    * Removes all finished tasks.
    * The task should have status='finished' and current timestamp should be greater then
-   * the time, when the task was finished plus the timeout.
+   * the time, when the task was finished plus the timeout. Tasks with any unfinished
+   * ancestor in the parent chain are preserved.
    *
    * @param timeout the duration between the time, when the task was finished and current timestamp
    */
@@ -788,10 +789,29 @@ export class TasksQueueDao {
     const expired = new Date(Date.now() - timeout);
     await this.withClient(async (cl) => {
       await cl.query(
-        `delete
-                 from tasks_queue
-                 where status = $1
-                   and finished < $2`,
+        `with recursive ancestors as (
+                   select child.id as task_id, parent.id, parent.parent_id, parent.status
+                   from tasks_queue child
+                            join tasks_queue parent on parent.id = child.parent_id
+                   where child.status = $1
+                     and child.finished < $2
+
+                   union all
+
+                   select ancestors.task_id, parent.id, parent.parent_id, parent.status
+                   from ancestors
+                            join tasks_queue parent on parent.id = ancestors.parent_id
+               )
+         delete
+         from tasks_queue task
+         where task.status = $1
+           and task.finished < $2
+           and not exists (
+             select 1
+             from ancestors
+             where ancestors.task_id = task.id
+               and ancestors.status <> $1
+           )`,
         [TaskStatus.finished, expired],
       );
     });
