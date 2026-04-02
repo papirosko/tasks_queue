@@ -39,6 +39,7 @@ export class ManageTasksQueueService {
       row["max_attempts"],
       row["attempt"],
       row["payload"],
+      row["result"],
     );
   }
 

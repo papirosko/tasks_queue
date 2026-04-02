@@ -58,7 +58,9 @@ export interface ScheduleTaskDetails {
    */
   priority?: number;
   /**
-   * Task details, that will be passed to a queue worker upon starting working on this task.
+   * Task input and persisted runtime state that will be passed to a queue worker on start.
+   *
+   * This field is not intended to represent the final outcome of task execution.
    */
   payload?: object;
   /**
@@ -176,7 +178,7 @@ export interface ScheduledTask {
    */
   parentId?: number;
   /**
-   * Task details, that were specified during task creation..
+   * Task input and persisted runtime state for the current execution.
    * */
   payload?: object;
   /**
@@ -206,7 +208,14 @@ export interface TaskStateSnapshot {
   id: number;
   parentId: number | undefined;
   status: TaskStatus;
+  /**
+   * Persisted task input and runtime state.
+   */
   payload: object | undefined;
+  /**
+   * Persisted final task result produced by the worker, if any.
+   */
+  result: Option<object>;
   error: string | undefined;
 }
 
@@ -266,9 +275,21 @@ export interface TaskContext {
    */
   setPayload(payload: object): void;
   /**
+   * Submit the final result to persist after the current `process()` call completes.
+   *
+   * This request is stored only in memory during the current runtime pass. The queue core
+   * persists it after successful completion or terminal failure of the task.
+   *
+   * Unlike {@link setPayload}, this method is intended for task output, not workflow state.
+   *
+   * @param result final task result to persist
+   */
+  submitResult(result: object): void;
+  /**
    * Load a task snapshot by id from persistent storage.
    *
-   * This is intended for orchestration helpers that need to inspect child task state
+   * This is intended for orchestration helpers that need to inspect child task state,
+   * including its final result,
    * while remaining independent from management services.
    *
    * @param taskId task id to load

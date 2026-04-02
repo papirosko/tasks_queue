@@ -284,6 +284,7 @@ export class TasksQueueDao {
                 SET status   = $1,
                     started  = $2,
                     last_heartbeat = null,
+                    result = null,
                     finished = null,
                     attempt  = attempt + 1
                 FROM selected
@@ -317,7 +318,8 @@ export class TasksQueueDao {
    * Load a minimal persistent snapshot of a task by id.
    *
    * The returned shape is intentionally compact and suitable for orchestration logic
-   * that needs to inspect child task status and payload without depending on management APIs.
+   * that needs to inspect child task status, runtime payload, and final result without
+   * depending on management APIs.
    *
    * @param taskId task id to load
    * @returns task snapshot if the row exists
@@ -326,7 +328,7 @@ export class TasksQueueDao {
   async findTaskState(taskId: number): Promise<Option<TaskStateSnapshot>> {
     return await this.withClient(async (cl) => {
       const res = await cl.query(
-        `select id, parent_id, status, payload, error
+        `select id, parent_id, status, payload, result, error
            from tasks_queue
           where id = $1`,
         [taskId],
@@ -336,6 +338,7 @@ export class TasksQueueDao {
         parentId: option(r["parent_id"]).map(Number).orUndefined,
         status: TaskStatus[r["status"] as keyof typeof TaskStatus],
         payload: option(r["payload"]).orUndefined,
+        result: option(r["result"]),
         error: option(r["error"]).map(String).orUndefined,
       }));
     });
@@ -406,7 +409,11 @@ export class TasksQueueDao {
    * @param taskId the id of the task
    */
   @Metric()
-  async finish(taskId: number, nextPayload?: object): Promise<void> {
+  async finish(
+    taskId: number,
+    nextPayload?: object,
+    result?: object,
+  ): Promise<void> {
     const now = new Date();
     await this.withClient(async (cl) => {
       await cl.query(
@@ -414,7 +421,8 @@ export class TasksQueueDao {
                  set status=$1,
                      finished=$2,
                      error=null,
-                     payload=$5
+                     payload=$5,
+                     result=$6
                  where id = $3
                    and status = $4`,
         [
@@ -423,6 +431,7 @@ export class TasksQueueDao {
           taskId,
           TaskStatus.in_progress,
           option(nextPayload).orNull,
+          option(result).orNull,
         ],
       );
     });
@@ -486,6 +495,7 @@ export class TasksQueueDao {
   async rescheduleIfPeriodic(
     taskId: number,
     nextPayload?: object,
+    result?: object,
   ): Promise<void> {
     await this.withClient(async (cl) => {
       const now = new Date();
@@ -506,7 +516,8 @@ export class TasksQueueDao {
                            finished    = $3,
                            error       = NULL,
                            attempt     = 0,
-                           payload     = $6
+                           payload     = $6,
+                           result      = $7
                      WHERE id = $4
                        AND status = $5`,
             [
@@ -516,6 +527,7 @@ export class TasksQueueDao {
               taskId,
               TaskStatus.in_progress,
               option(nextPayload).orNull,
+              option(result).orNull,
             ],
           );
           return task;
@@ -600,6 +612,7 @@ export class TasksQueueDao {
     taskId: number,
     error: string,
     nextPayload?: object,
+    result?: object,
   ): Promise<TaskStatus> {
     const now = new Date();
 
@@ -627,7 +640,11 @@ export class TasksQueueDao {
                                                           ) * interval '1 millisecond'
                                   ELSE NULL
                     END,
-                payload     = $7
+                payload     = $7,
+                result      = CASE
+                                  WHEN attempt < max_attempts THEN NULL
+                                  ELSE $8
+                    END
             WHERE id = $5
               AND status = $6
             returning status
@@ -640,6 +657,7 @@ export class TasksQueueDao {
           taskId, // $5
           TaskStatus.in_progress, // $6
           option(nextPayload).orNull, // $7
+          option(result).orNull, // $8
         ],
       );
       return Collection.from(res.rows)

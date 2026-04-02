@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { none, some } from "scats";
+import { none, some, type Option } from "scats";
 import { ActiveChildState } from "../src/active-child-state.js";
 import { MultiStepPayload } from "../src/multi-step-payload.js";
 import { MultiStepTask } from "../src/multi-step-task.js";
@@ -40,12 +40,28 @@ class AllowFailureMultiStepTask extends MultiStepTask<{ step: string }> {
   }
 }
 
+class ResultAwareMultiStepTask extends MultiStepTask<{ step: string }> {
+  childResult: Option<object> = none;
+
+  protected override async processNext(): Promise<void> {
+    return;
+  }
+
+  protected override async childFinished(
+    _payload: MultiStepPayload<{ step: string }>,
+    childTask: TaskStateSnapshot,
+  ): Promise<void> {
+    this.childResult = childTask.result;
+  }
+}
+
 const createContext = (): TaskContext => ({
   taskId: 1,
   currentAttempt: 1,
   maxAttempts: 3,
   ping: jest.fn(async () => undefined),
   setPayload: jest.fn(),
+  submitResult: jest.fn(),
   findTask: jest.fn(async () => none),
   spawnChild: jest.fn(),
   resolvedChildTask: none,
@@ -74,6 +90,7 @@ describe("MultiStepTask", () => {
           parentId: 1,
           status: TaskStatus.finished,
           payload: undefined,
+          result: some({ child: "result" }),
           error: undefined,
         } as TaskStateSnapshot),
       ),
@@ -101,6 +118,7 @@ describe("MultiStepTask", () => {
         parentId: 1,
         status: TaskStatus.finished,
         payload: undefined,
+        result: some({ child: "result" }),
         error: undefined,
       });
     });
@@ -117,6 +135,7 @@ describe("MultiStepTask", () => {
           parentId: 1,
           status: TaskStatus.error,
           payload: undefined,
+          result: some({ child: "result" }),
           error: "boom",
         } as TaskStateSnapshot),
       ),
@@ -145,6 +164,7 @@ describe("MultiStepTask", () => {
           parentId: 1,
           status: TaskStatus.error,
           payload: undefined,
+          result: some({ child: "result" }),
           error: "boom",
         } as TaskStateSnapshot),
       ),
@@ -173,6 +193,7 @@ describe("MultiStepTask", () => {
         parentId: 1,
         status: TaskStatus.error,
         payload: undefined,
+        result: some({ child: "result" }),
         error: "boom",
       });
     });
@@ -180,6 +201,35 @@ describe("MultiStepTask", () => {
       new MultiStepPayload(none, {}, { step: "waiting" }),
       context,
     );
+  });
+
+  it("exposes child result separately from child payload", async () => {
+    const task = new ResultAwareMultiStepTask();
+    const context = {
+      ...createContext(),
+      findTask: jest.fn(async () =>
+        some({
+          id: 42,
+          parentId: 1,
+          status: TaskStatus.finished,
+          payload: { internal: true },
+          result: some({ output: true }),
+          error: undefined,
+        } as TaskStateSnapshot),
+      ),
+    };
+
+    await task.process(
+      {
+        activeChild: {
+          taskId: 42,
+        },
+        userPayload: { step: "waiting" },
+      },
+      context,
+    );
+
+    expect(task.childResult.orUndefined).toEqual({ output: true });
   });
 
   it("reads legacy activeChildId payloads for backward compatibility", async () => {

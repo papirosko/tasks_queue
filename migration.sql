@@ -23,6 +23,7 @@ create table tasks_queue
     max_attempts         int4                                                                          not null default 1,
     attempt              int4                                                                          not null default 0,
     payload              jsonb                                                                                  default null,
+    result               jsonb                                                                                  default null,
     constraint tasks_queue_cron_expression_not_blank
         check (cron_expression is null or btrim(cron_expression) <> ''),
     constraint tasks_queue_repeat_config_consistency
@@ -67,7 +68,8 @@ comment on column tasks_queue.cron_expression is 'The optional cron expression t
 comment on column tasks_queue.repeat_type is 'Defines how the next execution time is calculated for repeating tasks (e.g., fixed_rate, fixed_delay, cron)';
 comment on column tasks_queue.max_attempts is 'The maximum number of attempts for a task to be processed in case of failures';
 comment on column tasks_queue.attempt is 'The number of attempts the task was fetched for processing';
-comment on column tasks_queue.payload is 'The optional data for the worker, that will process this task';
+comment on column tasks_queue.payload is 'The optional task input and persisted runtime state used during execution';
+comment on column tasks_queue.result is 'The optional final result submitted by the worker after task completion';
 COMMENT ON COLUMN tasks_queue.missed_runs_strategy is
     'Defines how missed runs of periodic tasks should be handled. '
         'Options: catch_up (run all missed intervals), '

@@ -104,6 +104,10 @@ export class GeneratePreviewTaskWorker extends TasksWorker implements OnApplicat
 
 Long-running workers can use `TaskContext.ping()` to refresh task heartbeat and avoid false stalled detection while work is still progressing.
 
+`payload` is the task input and persisted runtime state. If a worker needs to persist final
+task output separately, call `TaskContext.submitResult(...)`; parent workflows then read child
+output from `TaskStateSnapshot.result`.
+
 Submit tasks:
 ```typescript
 private readonly tasks: TasksPoolsService,

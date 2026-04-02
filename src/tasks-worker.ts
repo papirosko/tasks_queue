@@ -20,6 +20,9 @@ export abstract class TasksWorker {
      * then it should throw TaskFailed exception. The payload of the exception will replace
      * the current task payload.
      *
+     * To persist final task output independently from runtime state, use
+     * `context.submitResult(...)`.
+     *
      * @param payload - The data provided to the task.
      * @param context - the execution details
      * @see TaskFailed

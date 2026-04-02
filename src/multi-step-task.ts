@@ -128,7 +128,7 @@ import { TasksWorker } from "./tasks-worker.js";
  *             workflowPayload: {
  *               ...payload.workflowPayload,
  *               stage: "after-scan",
- *               virusesFound: childTask.payload?.["virusesFound"] === true,
+ *               virusesFound: childTask.result.map((r) => r["virusesFound"] === true).getOrElseValue(false),
  *             },
  *           }).toJson,
  *         );
@@ -137,14 +137,14 @@ import { TasksWorker } from "./tasks-worker.js";
  *             workflowPayload: {
  *               ...payload.workflowPayload,
  *               stage: "after-scan",
- *               virusesFound: childTask.payload?.["virusesFound"] === true,
+ *               virusesFound: childTask.result.map((r) => r["virusesFound"] === true).getOrElseValue(false),
  *             },
  *           }),
  *           context,
  *         );
  *         break;
  *       case "encode": {
- *         const encodedPath = String(childTask.payload?.["encodedPath"]);
+ *         const encodedPath = childTask.result.map((r) => String(r["encodedPath"])).getOrElseValue("");
  *         await this.videosDao.updateEncodedPath(payload.userPayload.videoId, encodedPath);
  *         const nextPayload = payload.copy({
  *           workflowPayload: {

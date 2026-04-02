@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.7.0
+
+### Added
+- Added optional `result jsonb` column to `tasks_queue` for explicit final task output persistence.
+- Added `TaskContext.submitResult(...)` for workers to submit final task output independently from `setPayload(...)`.
+
+### Changed
+- `TaskStateSnapshot` and management task views now expose optional `result`.
+- Parent-child orchestration now reads child output from `childTask.result` instead of overloading `childTask.payload`.
+- Runtime persistence keeps `payload` as task input/runtime state and stores `result` only on completed runs or terminal failures.
+
+### Migration
+Apply the following SQL to existing databases:
+
+```sql
+ALTER TABLE tasks_queue
+    ADD COLUMN IF NOT EXISTS result jsonb DEFAULT NULL;
+
+COMMENT ON COLUMN tasks_queue.result IS
+    'The optional final result submitted by the worker after task completion';
+```
+
 ## 1.6.0
 
 ### Added

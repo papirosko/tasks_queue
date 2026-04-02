@@ -1,4 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
+import { some } from "scats";
 import { TasksQueueDao } from "../src/tasks-queue.dao.js";
 import { TASK_HEARTBEAT_THROTTLE_MS, TaskStatus } from "../src/tasks-model.js";
 
@@ -93,6 +94,34 @@ describe("TasksQueueDao", () => {
         TaskStatus.blocked,
       ],
     );
+    expect(release).toHaveBeenCalled();
+  });
+
+  it("loads task snapshots with payload and result", async () => {
+    const query = jest.fn(async () => ({
+      rows: [
+        {
+          id: 11,
+          parent_id: 5,
+          status: "finished",
+          payload: { state: true },
+          result: { output: true },
+          error: null,
+        },
+      ],
+    }));
+    const { dao, release } = createDao(query);
+
+    const snapshot = await dao.findTaskState(11);
+
+    expect(snapshot.orUndefined).toEqual({
+      id: 11,
+      parentId: 5,
+      status: TaskStatus.finished,
+      payload: { state: true },
+      result: some({ output: true }),
+      error: undefined,
+    });
     expect(release).toHaveBeenCalled();
   });
 });

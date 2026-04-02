@@ -46,6 +46,7 @@ const createTask = (overrides: Partial<ScheduledTask> = {}): ScheduledTask => ({
 const createDao = (overrides: Record<string, any> = {}) => ({
   nextPending: jest.fn(async () => none),
   peekNextStartAfter: jest.fn(async () => none),
+  findTaskState: jest.fn(async () => none),
   ping: jest.fn(async () => undefined),
   finish: jest.fn(async () => undefined),
   blockParentAndScheduleChild: jest.fn(async () => undefined),
@@ -70,7 +71,7 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(taskWorker.process).toHaveBeenCalled();
-    expect(dao.finish).toHaveBeenCalledWith(1, undefined);
+    expect(dao.finish).toHaveBeenCalledWith(1, undefined, undefined);
     expect(dao.rescheduleIfPeriodic).not.toHaveBeenCalled();
   });
 
@@ -85,7 +86,11 @@ describe("TasksQueueWorker", () => {
       createTask({ repeatType: TaskPeriodType.fixed_rate }),
     );
 
-    expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(1, undefined);
+    expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(
+      1,
+      undefined,
+      undefined,
+    );
     expect(dao.finish).not.toHaveBeenCalled();
   });
 
@@ -101,7 +106,52 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.fail).toHaveBeenCalledWith(1, "failed", { replace: true });
+    expect(dao.fail).toHaveBeenCalledWith(
+      1,
+      "failed",
+      { replace: true },
+      undefined,
+    );
+  });
+
+  it("persists submitted result on successful completion", async () => {
+    const dao = createDao();
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        context.submitResult({ ok: true });
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.finish).toHaveBeenCalledWith(1, undefined, { ok: true });
+  });
+
+  it("passes submitted result into terminal failure flow", async () => {
+    const dao = createDao({
+      fail: jest.fn(async () => TaskStatus.error),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        context.submitResult({ partial: true });
+        throw new Error("boom");
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.fail).toHaveBeenCalledWith(
+      1,
+      "boom",
+      { foo: "bar" },
+      { partial: true },
+    );
   });
 
   // Expect lifecycle callback failures to not stop finishing the task.

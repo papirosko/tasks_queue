@@ -31,6 +31,7 @@ export class TaskDto {
     readonly maxAttempts: number,
     readonly attempt: number,
     readonly payload: any,
+    readonly result: any,
   ) {}
 }
 
@@ -237,6 +238,9 @@ export class TaskView {
   @ApiProperty()
   payload: any;
 
+  @ApiProperty({ required: false })
+  result?: any;
+
   static fromDto(dto: TaskDto) {
     const res = new TaskView();
     res.id = dto.id;
@@ -261,6 +265,7 @@ export class TaskView {
     res.maxAttempts = dto.maxAttempts;
     res.attempt = dto.attempt;
     res.payload = dto.payload;
+    res.result = dto.result;
     return res;
   }
 }

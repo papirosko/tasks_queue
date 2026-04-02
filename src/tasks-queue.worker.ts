@@ -20,6 +20,7 @@ const logger = log4js.getLogger("TasksQueueWorker");
 class RuntimeTaskContext implements TaskContext {
   private childTask: Option<SpawnChildTaskDetails> = none;
   private _nextPayload: Option<object> = none;
+  private _submittedResult: Option<object> = none;
   private lastPingAt: Option<number> = none;
   resolvedChildTask: Option<TaskStateSnapshot> = none;
 
@@ -56,6 +57,10 @@ class RuntimeTaskContext implements TaskContext {
     this._nextPayload = some(payload);
   }
 
+  submitResult(result: object): void {
+    this._submittedResult = some(result);
+  }
+
   async findTask(taskId: number): Promise<Option<TaskStateSnapshot>> {
     return this.tasksQueueDao.findTaskState(taskId);
   }
@@ -70,6 +75,10 @@ class RuntimeTaskContext implements TaskContext {
 
   get nextPayload(): Option<object> {
     return this._nextPayload;
+  }
+
+  get submittedResult(): Option<object> {
+    return this._submittedResult;
   }
 }
 
@@ -155,12 +164,14 @@ export class TasksQueueWorker {
             await this.tasksQueueDao.rescheduleIfPeriodic(
               task.id,
               context.nextPayload.orUndefined,
+              context.submittedResult.orUndefined,
             );
           },
           none: async () => {
             await this.tasksQueueDao.finish(
               task.id,
               context.nextPayload.orUndefined,
+              context.submittedResult.orUndefined,
             );
             await this.wakeBlockedParent(task.id);
           },
@@ -202,6 +213,7 @@ export class TasksQueueWorker {
             task.id,
             (e as any)["message"] || e,
             e instanceof TaskFailed ? e.payload : task.payload,
+            context.submittedResult.orUndefined,
           );
           if (finalStatus === TaskStatus.error) {
             await this.wakeBlockedParent(task.id);
