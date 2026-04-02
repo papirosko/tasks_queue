@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+### Changed
+- Prevented deletion of finished tasks while any ancestor in the parent chain is still unfinished.
+
 ## 1.7.0
 
 ### Added
