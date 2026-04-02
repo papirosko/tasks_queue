@@ -68,6 +68,16 @@ const createContext = (): TaskContext => ({
 });
 
 describe("MultiStepTask", () => {
+  it("creates fresh workflow envelope from user payload", () => {
+    const payload = MultiStepPayload.forUserPayload({ step: "start" });
+
+    expect(payload.toJson).toEqual({
+      workflowPayload: {},
+      userPayload: { step: "start" },
+    });
+    expect(payload.activeChild.isDefined).toBe(false);
+  });
+
   it("runs next step when there is no active child", async () => {
     const task = new TestMultiStepTask();
     const context = createContext();

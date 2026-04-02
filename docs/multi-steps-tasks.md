@@ -21,6 +21,11 @@ Where:
 - `workflowPayload` stores orchestration state
 - `userPayload` stores business data
 
+This is a required envelope, not just a recommendation. `MultiStepTask` and `SequentialTask`
+must be scheduled with payloads produced from `MultiStepPayload` and must keep that shape across
+all parent re-runs. Passing an arbitrary plain object as parent payload is not supported for
+these abstractions.
+
 Task `payload` remains the worker input and persisted runtime/orchestration state.
 Final task output is stored separately in task `result`, which child snapshots expose as
 `childTask.result`.
@@ -312,6 +317,19 @@ Do not use it when:
 - the next state depends on complex child result handling
 
 `SequentialTask` stores the current step in `workflowPayload.step`.
+If `workflowPayload.step` is missing when the parent starts, the workflow begins from the
+first configured step automatically and persists it into the payload.
+
+Resolution model:
+
+- the constructor step list is the canonical order of the workflow
+- `workflowPayload.step` is the current cursor in that order
+- if the cursor is missing on a fresh parent task, the first configured step is used
+- once a child finishes successfully, the cursor advances to the next configured step
+- if the current step is already the last configured step, no additional automatic transition happens
+
+This means a sequential workflow can be created with an empty `workflowPayload`, and the first
+parent execution will bootstrap `workflowPayload.step` from the configured step list.
 
 Key methods:
 
@@ -342,10 +360,17 @@ type VideoPayload = {
 };
 
 class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
+    static readonly QUEUE_NAME = "process-uploaded-video";
+
     constructor(
-        private readonly videosDao: VideosDao
+        private readonly videosDao: VideosDao,
+        private readonly tasks: TasksPoolsService
     ) {
         super(Collection.of("scan", "encode", "metadata", "finalise"));
+    }
+
+    async onApplicationBootstrap() {
+        this.tasks.registerWorker(ProcessUploadedVideoTask.QUEUE_NAME, this);
     }
 
     protected async processStep(
@@ -404,6 +429,17 @@ class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
         }
     }
 }
+
+await tasks.schedule({
+    queue: ProcessUploadedVideoTask.QUEUE_NAME,
+    payload: MultiStepPayload.forUserPayload({
+        videoId: 42,
+        sourcePath: "/uploads/video.mp4"
+    }).toJson
+});
+
+// First parent execution resolves step = "scan" from the configured sequence
+// and persists `workflowPayload.step = "scan"` automatically.
 ```
 
 Child task example for `read-video-metadata`:

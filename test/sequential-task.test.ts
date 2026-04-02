@@ -70,6 +70,25 @@ const createContext = (): TaskContext => ({
 });
 
 describe("SequentialTask", () => {
+  it("starts from the first configured step when workflow step is not set", async () => {
+    const task = new RecordingSequentialTask();
+    const context = createContext();
+    const processStepSpy = jest.spyOn(task as any, "processStep");
+    const payload = MultiStepPayload.forUserPayload({ videoId: 42 });
+
+    await task.process(payload.toJson, context);
+
+    expect(context.setPayload).toHaveBeenCalledWith({
+      workflowPayload: { step: "scan" },
+      userPayload: { videoId: 42 },
+    });
+    expect(processStepSpy).toHaveBeenCalledWith(
+      "scan",
+      { videoId: 42 },
+      context,
+    );
+  });
+
   it("delegates processing to processStep with current step and user payload", async () => {
     const task = new RecordingSequentialTask();
     const context = createContext();

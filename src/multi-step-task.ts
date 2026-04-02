@@ -12,6 +12,12 @@ import { TasksWorker } from "./tasks-worker.js";
  * - `userPayload` stores domain-specific business data
  * - `activeChild` stores the currently running child task state, if any
  *
+ * This is a strict contract. `MultiStepTask` should be scheduled and resumed only with payloads
+ * produced from {@link MultiStepPayload} (for example via `new MultiStepPayload(...)` or
+ * `MultiStepPayload.forUserPayload(...)`). Passing an arbitrary plain object as task payload is
+ * not supported for this abstraction, because orchestration state, active child tracking, and
+ * continuation logic all depend on the `MultiStepPayload` envelope shape.
+ *
  * Execution flow:
  * 1. If `activeChild` is empty, the worker calls {@link processNext}.
  * 2. If `activeChild` is present, the worker loads the child task through `context.findTask(...)`.

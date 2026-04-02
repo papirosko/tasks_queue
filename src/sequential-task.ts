@@ -7,10 +7,32 @@ import { TaskContext, TaskStateSnapshot } from "./tasks-model.js";
 /**
  * Linear workflow helper built on top of {@link MultiStepTask}.
  *
- * `SequentialTask` receives an ordered list of step names and automatically advances
- * `workflowPayload.step` to the next configured step after a child task finishes successfully.
- * This leaves subclasses with a single responsibility: implement `processStep(...)`
- * and branch on the current step.
+ * `SequentialTask` receives an ordered list of step names and uses that list as the canonical
+ * workflow order.
+ *
+ * Like {@link MultiStepTask}, this abstraction requires task payload to use the
+ * {@link MultiStepPayload} envelope. New parent tasks should be scheduled with
+ * `MultiStepPayload.forUserPayload(...)` or an equivalent `new MultiStepPayload(...)` instance,
+ * and resumed parent executions are expected to keep the same envelope shape.
+ *
+ * Step resolution rules:
+ * - on every parent execution, the current step is resolved from `workflowPayload.step`
+ * - if `workflowPayload.step` is missing, `SequentialTask` falls back to the first configured
+ *   step from the constructor `Collection<TStep>`
+ * - when that fallback is used, the resolved first step is persisted back into
+ *   `workflowPayload.step` before `processStep(...)` runs
+ * - after a child task finishes successfully, `workflowPayload.step` is advanced to the next
+ *   configured item in the same ordered list
+ * - if the current step is already the last configured item, no further automatic transition
+ *   happens
+ *
+ * This means the configured step list defines transition order, while the persisted
+ * `workflowPayload.step` defines the current position inside that order. Fresh parent tasks may
+ * omit `workflowPayload.step` entirely and let the workflow start from the first configured step
+ * automatically.
+ *
+ * This leaves subclasses with a single responsibility: implement `processStep(...)` and branch
+ * on the current step.
  *
  * The abstraction is intentionally happy-path only: the built-in behavior is "complete all
  * configured steps or fail the parent task". If a workflow needs branching recovery logic,
@@ -30,10 +52,17 @@ import { TaskContext, TaskStateSnapshot } from "./tasks-model.js";
  * };
  *
  * class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
+ *   static readonly QUEUE_NAME = "process-uploaded-video";
+ *
  *   constructor(
  *     private readonly videosDao: VideosDao,
+ *     private readonly tasks: TasksPoolsService,
  *   ) {
  *     super(Collection.of("scan", "encode", "metadata"));
+ *   }
+ *
+ *   async onApplicationBootstrap() {
+ *     this.tasks.registerWorker(ProcessUploadedVideoTask.QUEUE_NAME, this);
  *   }
  *
  *   protected async processStep(
@@ -75,6 +104,17 @@ import { TaskContext, TaskStateSnapshot } from "./tasks-model.js";
  *     }
  *   }
  * }
+ *
+ * await tasks.schedule({
+ *   queue: ProcessUploadedVideoTask.QUEUE_NAME,
+ *   payload: MultiStepPayload.forUserPayload({
+ *     videoId: 42,
+ *     sourcePath: "/uploads/video.mp4",
+ *   }).toJson,
+ * });
+ *
+ * // Fresh sequential workflow: `workflowPayload.step` may be omitted.
+ * // The first parent execution will start from "scan" and persist it automatically.
  * ```
  */
 export abstract class SequentialTask<
@@ -124,12 +164,22 @@ export abstract class SequentialTask<
     payload: MultiStepPayload<TUserPayload>,
     context: TaskContext,
   ): Promise<void> {
-    await this.stepFromPayload(payload).match({
+    await this.currentStep(payload).match({
       some: async (step) => {
+        if (payload.workflowPayload["step"] !== step) {
+          context.setPayload(
+            payload.copy({
+              workflowPayload: {
+                ...payload.workflowPayload,
+                step,
+              },
+            }).toJson,
+          );
+        }
         await this.processStep(step, payload.userPayload, context);
       },
       none: async () => {
-        throw new Error("Sequential task requires workflowPayload.step");
+        throw new Error("Sequential task requires at least one configured step");
       },
     });
   }
@@ -152,7 +202,7 @@ export abstract class SequentialTask<
     context: TaskContext,
     _activeChild: ActiveChildState,
   ): Promise<void> {
-    await this.stepFromPayload(payload).match({
+    await this.currentStep(payload).match({
       some: async (currentStep) => {
         await this.nextStep(currentStep).match({
           some: async (step) => {
@@ -171,7 +221,7 @@ export abstract class SequentialTask<
         });
       },
       none: async () => {
-        throw new Error("Sequential task requires workflowPayload.step");
+        throw new Error("Sequential task requires at least one configured step");
       },
     });
   }
@@ -184,5 +234,18 @@ export abstract class SequentialTask<
    */
   private stepFromPayload(payload: MultiStepPayload<TUserPayload>) {
     return option(payload.workflowPayload["step"]).map((x) => x as TStep);
+  }
+
+  /**
+   * Resolve current step from payload, falling back to the first configured step.
+   *
+   * This lets newly created sequential workflows omit `workflowPayload.step`
+   * and start from the beginning of the configured sequence.
+   *
+   * @param payload current multi-step payload
+   * @returns current step name if one can be resolved
+   */
+  private currentStep(payload: MultiStepPayload<TUserPayload>) {
+    return this.stepFromPayload(payload).orElseValue(this.steps.headOption);
   }
 }

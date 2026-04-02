@@ -1,4 +1,4 @@
-import { option, Option } from "scats";
+import { none, option, Option } from "scats";
 import { ActiveChildState } from "./active-child-state.js";
 
 /**
@@ -10,6 +10,23 @@ import { ActiveChildState } from "./active-child-state.js";
 export class MultiStepPayload<
   TUserPayload extends object = Record<string, unknown>,
 > {
+  /**
+   * Create a fresh workflow envelope from user business payload only.
+   *
+   * This is the default entrypoint for scheduling a new multi-step parent task:
+   * - no active child yet
+   * - empty workflow-owned orchestration state
+   * - provided user payload as workflow business input
+   *
+   * @param userPayload domain-specific business payload
+   * @returns envelope ready to be serialized and scheduled
+   */
+  static forUserPayload<TUserPayload extends object>(
+    userPayload: TUserPayload,
+  ): MultiStepPayload<TUserPayload> {
+    return new MultiStepPayload(none, {}, userPayload);
+  }
+
   constructor(
     /**
      * Currently active child task metadata, if the parent is blocked waiting for it.
