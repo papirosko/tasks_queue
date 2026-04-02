@@ -51,11 +51,12 @@ export class ActiveChildState {
     return option(j)
       .map((x) => x as Record<string, unknown>)
       .flatMap((x) =>
-        option(x["taskId"]).map((taskId) =>
-          new ActiveChildState(
-            Number(taskId),
-            option(x["allowFailure"]).map(Boolean).getOrElseValue(false),
-          ),
+        option(x["taskId"]).map(
+          (taskId) =>
+            new ActiveChildState(
+              Number(taskId),
+              option(x["allowFailure"]).map(Boolean).getOrElseValue(false),
+            ),
         ),
       );
   }

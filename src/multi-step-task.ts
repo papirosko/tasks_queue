@@ -261,7 +261,9 @@ export abstract class MultiStepTask<
             );
           },
           none: async () => {
-            throw new Error(`Active child task ${activeChild.taskId} not found`);
+            throw new Error(
+              `Active child task ${activeChild.taskId} not found`,
+            );
           },
         });
       },

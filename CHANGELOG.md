@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0
 
 ### Added
 - Added `ActiveChildState` and `MultiStepPayload.activeChild` to persist active child orchestration metadata.
