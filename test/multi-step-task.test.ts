@@ -18,6 +18,7 @@ const createContext = (): TaskContext => ({
   taskId: 1,
   currentAttempt: 1,
   maxAttempts: 3,
+  ping: jest.fn(async () => undefined),
   setPayload: jest.fn(),
   findTask: jest.fn(async () => none),
   spawnChild: jest.fn(),

@@ -7,6 +7,7 @@
 - Added `blocked` task status for multi-step orchestration flows.
 - Added `TaskContext.spawnChild(...)` for declarative child task scheduling from a parent task.
 - Added `TaskContext.taskId`, `TaskContext.setPayload(...)`, and `TaskContext.findTask(...)` for workflow-aware task execution.
+- Added `TaskContext.ping()` and persistent task heartbeats for long-running workers.
 - Added `MultiStepPayload` with separate `workflowPayload`, `userPayload`, and `activeChildId`.
 - Added `MultiStepTask` for custom state-machine workflows with one active child at a time.
 - Added `SequentialTask` for happy-path sequential workflows that either complete all configured steps or fail.
@@ -14,6 +15,7 @@
 ### Changed
 - Parent tasks are now automatically moved to `blocked` after successful child scheduling and woken up only when the child reaches a terminal state.
 - Stalled child tasks now wake blocked parents when they end in terminal `error`.
+- Stalled task detection now uses the latest heartbeat when available instead of relying only on `started`.
 
 ### Migration
 Apply the following SQL to existing databases:
@@ -22,6 +24,9 @@ Apply the following SQL to existing databases:
 ALTER TABLE tasks_queue
     ADD COLUMN IF NOT EXISTS parent_id int4 DEFAULT NULL
         REFERENCES tasks_queue (id) ON DELETE SET NULL;
+
+ALTER TABLE tasks_queue
+    ADD COLUMN IF NOT EXISTS last_heartbeat timestamp DEFAULT NULL;
 
 ALTER TABLE tasks_queue
     DROP CONSTRAINT IF EXISTS tasks_queue_status_check;

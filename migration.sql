@@ -6,6 +6,7 @@ create table tasks_queue
     created              timestamp                                                                     not null default now(),
     initial_start        timestamp                                                                     not null default now(),
     started              timestamp                                                                              default null,
+    last_heartbeat       timestamp                                                                              default null,
     finished             timestamp                                                                              default null,
     status               varchar(15) check (status in ('pending', 'in_progress', 'blocked', 'finished', 'error')) not null default 'pending',
     missed_runs_strategy varchar(30) check (missed_runs_strategy in ('catch_up', 'skip_missed'))                default 'skip_missed',
@@ -50,6 +51,8 @@ comment on column tasks_queue.id is 'The id of the queued task';
 comment on column tasks_queue.parent_id is 'Optional parent task id for multi-step orchestration';
 comment on column tasks_queue.queue is 'The name of the queue task belongs to';
 comment on column tasks_queue.created is 'The time when the task was added to queue (created)';
+comment on column tasks_queue.started is 'The time when the current processing attempt was started';
+comment on column tasks_queue.last_heartbeat is 'The last confirmed heartbeat for the current processing attempt';
 comment on column tasks_queue.finished is 'The time when the task was finished either successfully or with error';
 comment on column tasks_queue.status is 'The current status of the task';
 comment on column tasks_queue.priority is 'The priority of the task. Higher values indicate higher priority. Used to determine task processing order.';

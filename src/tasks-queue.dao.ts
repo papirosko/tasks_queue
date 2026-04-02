@@ -9,6 +9,7 @@ import {
   BackoffType,
   MissedRunStrategy,
   ScheduledTask,
+  TASK_HEARTBEAT_THROTTLE_MS,
   TaskStateSnapshot,
   TaskPeriodType,
   TaskStatus,
@@ -278,6 +279,7 @@ export class TasksQueueDao {
                 UPDATE tasks_queue
                 SET status   = $1,
                     started  = $2,
+                    last_heartbeat = null,
                     finished = null,
                     attempt  = attempt + 1
                 FROM selected
@@ -332,6 +334,25 @@ export class TasksQueueDao {
         payload: option(r["payload"]).orUndefined,
         error: option(r["error"]).map(String).orUndefined,
       }));
+    });
+  }
+
+  @Metric()
+  async ping(taskId: number): Promise<void> {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS);
+    await this.withClient(async (cl) => {
+      await cl.query(
+        `update tasks_queue
+            set last_heartbeat = $1
+          where id = $2
+            and status = $3
+            and (
+              last_heartbeat is null
+              or last_heartbeat < $4
+            )`,
+        [now, taskId, TaskStatus.in_progress, cutoff],
+      );
     });
   }
 
@@ -634,7 +655,8 @@ export class TasksQueueDao {
    *
    * To be updated the task should have
    *  - status='in_progress'
-   *  - defined timeout and started + timeout should be less than current timestamp
+   *  - defined timeout and greatest(started, coalesce(last_heartbeat, started)) + timeout
+   *    should be less than current timestamp
    *
    * @return ids of stalled tasks whose status was updated
    */
@@ -668,7 +690,10 @@ export class TasksQueueDao {
                                     end
                 where child.status = $5
                   and child.timeout is not null
-                  and child.started + child.timeout * interval '1 millisecond' < $6
+                  and greatest(
+                      child.started,
+                      coalesce(child.last_heartbeat, child.started)
+                  ) + child.timeout * interval '1 millisecond' < $6
                 returning child.id, child.parent_id, child.status
              ),
              woken as (

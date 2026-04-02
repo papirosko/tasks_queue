@@ -1,0 +1,56 @@
+import { describe, expect, it, jest } from "@jest/globals";
+import { TasksQueueDao } from "../src/tasks-queue.dao.js";
+import { TASK_HEARTBEAT_THROTTLE_MS, TaskStatus } from "../src/tasks-model.js";
+
+const createDao = (query: any) => {
+  const release = jest.fn();
+  const pool = {
+    connect: jest.fn(async () => ({
+      query,
+      release,
+    })),
+  };
+  return {
+    dao: new TasksQueueDao(pool as any),
+    pool,
+    release,
+  };
+};
+
+describe("TasksQueueDao", () => {
+  it("updates heartbeat only for in-progress tasks", async () => {
+    const now = new Date("2026-04-02T10:00:00.000Z");
+    jest.useFakeTimers().setSystemTime(now);
+    const query = jest.fn(async () => ({ rows: [] }));
+    const { dao, release } = createDao(query);
+
+    await dao.ping(42);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("set last_heartbeat = $1"),
+      [
+        now,
+        42,
+        TaskStatus.in_progress,
+        new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS),
+      ],
+    );
+    expect(release).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it("detects stalled tasks from the latest heartbeat when available", async () => {
+    const query: any = jest.fn();
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rows: [{ id: 7 }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const { dao, release } = createDao(query);
+
+    const res = await dao.failStalled();
+
+    expect(res.toArray).toEqual([7]);
+    expect(query.mock.calls[1][0]).toContain("coalesce(child.last_heartbeat, child.started)");
+    expect(query.mock.calls[1][0]).toContain("greatest(");
+    expect(release).toHaveBeenCalled();
+  });
+});

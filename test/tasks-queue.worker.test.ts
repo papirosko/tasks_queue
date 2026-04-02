@@ -1,6 +1,7 @@
 import { afterEach, jest } from "@jest/globals";
 import { none, some } from "scats";
 import {
+  TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
   TaskFailed,
   TaskPeriodType,
@@ -45,6 +46,7 @@ const createTask = (overrides: Partial<ScheduledTask> = {}): ScheduledTask => ({
 const createDao = (overrides: Record<string, any> = {}) => ({
   nextPending: jest.fn(async () => none),
   peekNextStartAfter: jest.fn(async () => none),
+  ping: jest.fn(async () => undefined),
   finish: jest.fn(async () => undefined),
   blockParentAndScheduleChild: jest.fn(async () => undefined),
   rescheduleIfPeriodic: jest.fn(async () => undefined),
@@ -186,5 +188,45 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(1);
+  });
+
+  it("provides context.ping() that writes heartbeat for the current task", async () => {
+    const dao = createDao();
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        await context.ping();
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.ping).toHaveBeenCalledWith(1);
+  });
+
+  it("throttles repeated context.ping() calls in runtime", async () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    nowSpy
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1)
+      .mockReturnValueOnce(1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1);
+    const dao = createDao();
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        await context.ping();
+        await context.ping();
+        await context.ping();
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(createTask());
+
+    expect(dao.ping).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
   });
 });

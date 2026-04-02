@@ -202,6 +202,8 @@ export interface TaskStateSnapshot {
   error: string | undefined;
 }
 
+export const TASK_HEARTBEAT_THROTTLE_MS = 60_000;
+
 /**
  * If this error is thrown from the process method of the task, then returned payload
  * will be stored as a new task payload, replacing the previous one.
@@ -231,6 +233,13 @@ export interface TaskContext {
    * Maximum number of attempts allowed for this task.
    */
   maxAttempts: number;
+  /**
+   * Persist a heartbeat for the current task to prevent false stalled detection
+   * during long-running processing.
+   *
+   * Frequent repeated calls are throttled by the runtime and persistence layer.
+   */
+  ping(): Promise<void>;
   /**
    * Replace the payload that will be persisted when the current task leaves `in_progress`.
    *

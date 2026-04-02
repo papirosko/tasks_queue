@@ -6,6 +6,7 @@ import { TasksPipeline } from "./tasks-pipeline.js";
 import {
   ScheduleTaskDetails,
   ScheduledTask,
+  TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
   TaskFailed,
   TaskStateSnapshot,
@@ -19,6 +20,7 @@ const logger = log4js.getLogger("TasksQueueWorker");
 class RuntimeTaskContext implements TaskContext {
   private childTask: Option<ScheduleTaskDetails> = none;
   private _nextPayload: Option<object> = none;
+  private lastPingAt: Option<number> = none;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
@@ -26,6 +28,17 @@ class RuntimeTaskContext implements TaskContext {
     readonly currentAttempt: number,
     readonly maxAttempts: number,
   ) {}
+
+  async ping(): Promise<void> {
+    const now = Date.now();
+    if (this.lastPingAt
+      .map((lastPingAt) => now - lastPingAt < TASK_HEARTBEAT_THROTTLE_MS)
+      .getOrElseValue(false)) {
+      return;
+    }
+    await this.tasksQueueDao.ping(this.taskId);
+    this.lastPingAt = some(now);
+  }
 
   spawnChild(task: ScheduleTaskDetails): void {
     if (this.childTask.nonEmpty) {
