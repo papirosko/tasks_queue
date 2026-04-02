@@ -38,6 +38,11 @@ Apply [migration.sql](migration.sql) on your db, or add a new migration file to 
 
 For long-running workers that need periodic liveness updates, see [docs/heartbeat.md](docs/heartbeat.md).
 
+Additional documentation:
+
+- [docs/heartbeat.md](docs/heartbeat.md) - how task heartbeats work and when to call `TaskContext.ping()` in long-running workers.
+- [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md) - how to build parent-child workflows with `MultiStepTask`, `SequentialTask`, and `MultiStepPayload`.
+
 
 Register the queue module in your app. You have to provide pg.Pool
 

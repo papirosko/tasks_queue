@@ -49,7 +49,9 @@ describe("TasksQueueDao", () => {
     const res = await dao.failStalled();
 
     expect(res.toArray).toEqual([7]);
-    expect(query.mock.calls[1][0]).toContain("coalesce(child.last_heartbeat, child.started)");
+    expect(query.mock.calls[1][0]).toContain(
+      "coalesce(child.last_heartbeat, child.started)",
+    );
     expect(query.mock.calls[1][0]).toContain("greatest(");
     expect(release).toHaveBeenCalled();
   });

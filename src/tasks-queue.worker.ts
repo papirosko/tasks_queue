@@ -31,9 +31,11 @@ class RuntimeTaskContext implements TaskContext {
 
   async ping(): Promise<void> {
     const now = Date.now();
-    if (this.lastPingAt
-      .map((lastPingAt) => now - lastPingAt < TASK_HEARTBEAT_THROTTLE_MS)
-      .getOrElseValue(false)) {
+    if (
+      this.lastPingAt
+        .map((lastPingAt) => now - lastPingAt < TASK_HEARTBEAT_THROTTLE_MS)
+        .getOrElseValue(false)
+    ) {
       return;
     }
     await this.tasksQueueDao.ping(this.taskId);
