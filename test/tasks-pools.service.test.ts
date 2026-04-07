@@ -130,4 +130,27 @@ describe("TasksPoolsService", () => {
       expect.any(Date),
     );
   });
+
+  it("clears stop timeout timer after successful shutdown", async () => {
+    const dao = {
+      schedule: jest.fn(async () => some(1)),
+      schedulePeriodic: jest.fn(async () => some(2)),
+      nextPending: jest.fn(async () => none),
+      peekNextStartAfter: jest.fn(async () => none),
+    };
+    const manageService = {} as any;
+    const service = new TasksPoolsService(dao as any, manageService, false, [
+      { name: DEFAULT_POOL, concurrency: 1, loopInterval: 10 },
+    ]);
+
+    const pools = (service as any).pools;
+    const defaultPool = pools.get(DEFAULT_POOL).getOrElseValue(null);
+    jest
+      .spyOn(defaultPool, "stop")
+      .mockImplementation(async () => undefined);
+
+    await service.stop(30000);
+
+    expect(jest.getTimerCount()).toBe(0);
+  });
 });

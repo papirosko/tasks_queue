@@ -1,5 +1,5 @@
 import { TasksPool } from "./tasks-pool.js";
-import { Collection, HashMap, mutable, none, Option, some } from "scats";
+import { Collection, HashMap, mutable, none, option, Option, some } from "scats";
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import { TasksQueueService } from "./tasks-queue.service.js";
 import { TasksAuxiliaryWorker } from "./tasks-auxiliary-worker.js";
@@ -95,18 +95,24 @@ export class TasksPoolsService {
    */
   async stop(timeoutMs = 30000) {
     logger.info("Stopping TasksPoolsService");
+    let stopTimer: NodeJS.Timeout | undefined;
     try {
       this.auxiliaryWorker.foreach((w) => w.stop());
       await Promise.race([
         this.pools.values.mapPromise((p) => p.stop()),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Stop timeout")), timeoutMs),
-        ),
+        new Promise((_, reject) => {
+          stopTimer = setTimeout(
+            () => reject(new Error("Stop timeout")),
+            timeoutMs,
+          );
+        }),
       ]);
       logger.info("TasksPoolsService stopped successfully");
     } catch (e) {
       logger.error("Failed to stop TasksPoolsService gracefully", e);
       throw e;
+    } finally {
+      option(stopTimer).foreach((timer) => clearTimeout(timer));
     }
   }
 
