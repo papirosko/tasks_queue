@@ -14,6 +14,12 @@ import { TasksWorker } from "./tasks-worker.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { Clock, SystemClock } from "./clock.js";
 
+/**
+ * Default pool name used by {@link TasksPoolsService.registerWorker} when no
+ * explicit pool is provided.
+ *
+ * See also {@link TasksQueueModuleOptions.pools}.
+ */
 export const DEFAULT_POOL = "default";
 const logger = log4js.getLogger("TasksPoolsService");
 
@@ -69,6 +75,8 @@ export class TasksPoolsService {
    *
    * Each pool starts its own polling pipeline with its configured concurrency
    * and loop interval.
+   *
+   * After this call, registered queues become eligible for processing.
    */
   start() {
     logger.info(`Starting TasksPoolsService with ${this.pools.size} pools`);
@@ -82,6 +90,7 @@ export class TasksPoolsService {
    * The method races pool shutdown against a timeout to avoid hanging forever.
    *
    * @param timeoutMs maximum time to wait for graceful stop
+   * @returns resolved promise when all pools stop cleanly
    */
   async stop(timeoutMs = 30000) {
     logger.info("Stopping TasksPoolsService");
@@ -109,6 +118,7 @@ export class TasksPoolsService {
    * @param queueName queue identifier
    * @param worker worker implementation
    * @param poolName target pool name, defaults to `default`
+   * @returns nothing; subsequent scheduled tasks for this queue will be routed to the selected pool
    */
   registerWorker(
     queueName: string,
@@ -152,6 +162,10 @@ export class TasksPoolsService {
   /**
    * Schedule a periodic task with fixed-rate semantics.
    *
+   * Fixed-rate scheduling keeps the cadence aligned to the original schedule.
+   * It does not wait for the previous run to finish before calculating the next
+   * nominal trigger time.
+   *
    * @param task periodic task details with `period` in milliseconds
    * @returns created task id if insert succeeded, otherwise `none`
    */
@@ -167,6 +181,9 @@ export class TasksPoolsService {
 
   /**
    * Schedule a periodic task with fixed-delay semantics.
+   *
+   * Fixed-delay scheduling computes the next run relative to completion time
+   * rather than to the original nominal cadence.
    *
    * @param task periodic task details with `period` in milliseconds
    * @returns created task id if insert succeeded, otherwise `none`

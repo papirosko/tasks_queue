@@ -44,6 +44,9 @@ export class MultiStepPayload<
 
   /**
    * Create a shallow copy with selected envelope parts replaced.
+   *
+   * @param o replacement envelope parts
+   * @returns copied payload envelope with overrides applied
    */
   copy(
     o: Partial<MultiStepPayload<TUserPayload>>,
@@ -57,6 +60,8 @@ export class MultiStepPayload<
 
   /**
    * Serialize the envelope into plain JSON suitable for task payload persistence.
+   *
+   * @returns plain object ready for {@link ScheduleTaskDetails.payload}
    */
   get toJson(): object {
     const res: Record<string, unknown> = {
@@ -73,6 +78,9 @@ export class MultiStepPayload<
    * Deserialize workflow envelope from plain JSON payload.
    *
    * For backward compatibility this also reads legacy `activeChildId` payloads.
+   *
+   * @param j serialized workflow payload
+   * @returns parsed multi-step envelope with empty defaults when sections are missing
    */
   static fromJson<TUserPayload extends object>(
     j: unknown,

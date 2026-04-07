@@ -8,6 +8,9 @@ import { TaskContext, TaskStatus } from "./tasks-model.js";
  * Extend this class to define how a specific task should be handled.
  * You must implement the `process()` method. Other lifecycle methods
  * are optional and can be overridden to add custom behavior.
+ *
+ * See also {@link TaskContext}, {@link TaskFailed}, {@link MultiStepTask}, and
+ * {@link SequentialTask}.
  */
 export abstract class TasksWorker {
     /**
@@ -25,6 +28,7 @@ export abstract class TasksWorker {
      *
      * @param payload - The data provided to the task.
      * @param context - the execution details
+     * @returns resolved promise when the attempt work is complete
      * @see TaskFailed
      */
     abstract process(payload: any, context: TaskContext): Promise<void>;
@@ -39,6 +43,7 @@ export abstract class TasksWorker {
      *
      * @param taskId - The unique identifier of the task.
      * @param payload - The data provided to the task.
+     * @returns nothing
      */
     starting(taskId: number, payload: any): void {}
 
@@ -52,6 +57,7 @@ export abstract class TasksWorker {
      *
      * @param taskId - The unique identifier of the task.
      * @param payload - The data provided to the task.
+     * @returns resolved promise when post-completion side effects are done
      */
     completed(taskId: number, payload: any): Promise<void> {
         return Promise.resolve();
@@ -73,6 +79,7 @@ export abstract class TasksWorker {
      * @param finalStatus - Final status of the task: `'pending'` if it will be retried,
      *                      or `'error'` if it won't be retried anymore.
      * @param error - the error, raised during the task execution.
+     * @returns resolved promise when post-failure side effects are done
 
      */
     failed(taskId: number, payload: any, finalStatus: TaskStatus, error: any): Promise<void> {

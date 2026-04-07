@@ -1,3 +1,14 @@
+/**
+ * Predefined cron expression constants for common schedules.
+ *
+ * These values can be passed to {@link ScheduleCronTaskDetails.cronExpression}
+ * with {@link TasksQueueService.scheduleAtCron} or
+ * {@link TasksPoolsService.scheduleAtCron}.
+ *
+ * Expressions follow the formats supported by
+ * {@link CronExpressionUtils.validate} and are interpreted in UTC by the queue
+ * runtime unless you evaluate them manually elsewhere.
+ */
 export enum CronExpression {
   EVERY_SECOND = "* * * * * *",
   EVERY_5_SECONDS = "*/5 * * * * *",

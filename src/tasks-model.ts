@@ -1,5 +1,15 @@
 import type { Option } from "scats";
 
+/**
+ * Persistent lifecycle states of a task row.
+ *
+ * These values are stored in the database and are surfaced by
+ * {@link ScheduledTask}, {@link TaskStateSnapshot}, and management APIs such as
+ * {@link ManageTasksQueueService.findById}.
+ *
+ * See also {@link TaskContext.spawnChild} for transitions into `blocked`,
+ * and {@link TaskTimedOutError} for timeout-driven transitions.
+ */
 export enum TaskStatus {
   /**
    * Task is waiting for a worker to fetch it and to start processing.
@@ -28,6 +38,14 @@ export enum TaskStatus {
   error = "error",
 }
 
+/**
+ * Retry backoff formulas supported by the queue.
+ *
+ * Used by {@link ScheduleTaskDetails.backoffType},
+ * {@link UpdatePendingTaskDetails.backoffType}, and timeout / retry handling.
+ *
+ * See also {@link ScheduleTaskDetails.backoff}.
+ */
 export enum BackoffType {
   constant = "constant",
   linear = "linear",
@@ -35,42 +53,69 @@ export enum BackoffType {
 }
 
 /**
- * The parameters of the new task to be added to a quueue.
+ * Parameters used to schedule a one-time task.
+ *
+ * This is the base scheduling contract shared by regular tasks and child tasks.
+ * Periodic scheduling extends it via {@link SchedulePeriodicTaskDetails} and
+ * {@link ScheduleCronTaskDetails}.
+ *
+ * See also {@link TasksQueueService.schedule} and
+ * {@link TasksPoolsService.schedule}.
  */
 export interface ScheduleTaskDetails {
   /**
-   * The name of the queue, where the task should be placed.
+   * Queue name that determines which registered {@link TasksWorker} will process the task.
+   *
+   * The queue must be registered in a running {@link TasksQueueService} or
+   * {@link TasksPoolsService} to be processed immediately.
    */
   queue: string;
   /**
-   * Maximum amount of the time in milliseconds, after which the task will be considered as 'stalled'.
-   * If not set, the default value 1 hour will be used.
+   * Maximum duration in milliseconds for a single processing attempt before it is treated as stalled.
+   *
+   * The timeout is enforced against the latest persisted liveness point:
+   * `started` or `last_heartbeat`.
+   *
+   * If omitted, the queue uses its default timeout of one hour.
+   *
+   * See also {@link TaskContext.ping} and {@link TaskTimedOutError}.
    */
   timeout?: number;
   /**
-   * The date after that the task should be picked up by a worker.
+   * Earliest instant when the task becomes eligible for polling.
+   *
+   * Use this for delayed execution. If omitted or `null` at persistence level,
+   * the task may be picked up as soon as a worker is available.
    */
   startAfter?: Date;
 
   /**
-   * Task priority defines the order in which tasks are fetched from db. The highest values comes first.
-   * Default value is 0.
+   * Relative priority among eligible pending tasks in the same queue.
+   *
+   * Higher values are fetched first. If omitted, the default value is `0`.
    */
   priority?: number;
   /**
-   * Task input and persisted runtime state that will be passed to a queue worker on start.
+   * Task input and persisted runtime state passed to {@link TasksWorker.process}.
    *
-   * This field is not intended to represent the final outcome of task execution.
+   * This field is intended for worker input and workflow state, not for the final
+   * outcome of execution. Use {@link TaskContext.submitResult} for final output.
    */
   payload?: object;
   /**
-   * Maximum number of attempts for the task to be executed in case the task was failed or stalled.
-   * If not set, will use default value 1.
+   * Maximum number of attempts allowed for the task.
+   *
+   * The first run counts as attempt `1`. If omitted, the default value is `1`,
+   * meaning "do not retry".
+   *
+   * See also {@link ScheduledTask.currentAttempt}.
    */
   retries?: number;
   /**
-   * The delay before retrying a failed task, in milliseconds.
-   * Used as a base value when calculating the retry delay.
+   * Base retry delay in milliseconds.
+   *
+   * This value is combined with {@link backoffType} to calculate `startAfter`
+   * when an attempt fails or times out and retries remain.
    *
    * Actual delay depends on `backoffType`:
    * - 'constant': delay = backoff
@@ -82,17 +127,24 @@ export interface ScheduleTaskDetails {
   backoff?: number;
 
   /**
-   * Strategy used to calculate the delay before retrying a failed task.
+   * Formula used to calculate the next retry delay.
    *
    * - 'constant': always waits the same amount of time (`backoff`) between retries.
    * - 'linear': delay increases linearly with each attempt (`backoff * attempt`).
    * - 'exponential': delay increases exponentially (`backoff * 2^attempt`).
    *
-   * If not set, defaults to 'linear'.
+   * If omitted, the default is `linear`.
    */
   backoffType?: BackoffType;
 }
 
+/**
+ * Periodic scheduling modes supported by the queue.
+ *
+ * Used by {@link SchedulePeriodicTaskDetails},
+ * {@link ScheduleCronTaskDetails}, and management models such as
+ * {@link UpdatePendingPeriodicScheduleDetails}.
+ */
 export enum TaskPeriodType {
   fixed_rate = "fixed_rate",
   fixed_delay = "fixed_delay",
@@ -117,14 +169,25 @@ export enum MissedRunStrategy {
   skip_missed = "skip_missed",
 }
 
+/**
+ * Parameters for interval-based periodic tasks.
+ *
+ * Use with {@link TasksQueueService.scheduleAtFixedRate},
+ * {@link TasksQueueService.scheduleAtFixedDelay},
+ * {@link TasksPoolsService.scheduleAtFixedRate}, or
+ * {@link TasksPoolsService.scheduleAtFixedDelay}.
+ */
 export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
   /**
-   * The unique name for the periodic task for the deduplication.
+   * Unique persistent identifier of the periodic task definition.
+   *
+   * The queue uses this name for deduplication, so only one periodic task with
+   * the same name may exist.
    */
   name: string;
 
   /**
-   * The interval, after which the task should be processed again.
+   * Interval in milliseconds used by `fixed_rate` or `fixed_delay` scheduling.
    */
   period: number;
 
@@ -138,9 +201,15 @@ export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
   missedRunStrategy?: MissedRunStrategy;
 }
 
+/**
+ * Parameters for cron-based periodic tasks.
+ *
+ * Use with {@link TasksQueueService.scheduleAtCron} or
+ * {@link TasksPoolsService.scheduleAtCron}.
+ */
 export interface ScheduleCronTaskDetails extends ScheduleTaskDetails {
   /**
-   * The unique name for the periodic task for the deduplication.
+   * Unique persistent identifier of the periodic task definition.
    */
   name: string;
 
@@ -166,11 +235,17 @@ export interface ScheduleCronTaskDetails extends ScheduleTaskDetails {
 }
 
 /**
- * The details of the fetched task.
+ * Runtime snapshot of a task fetched for processing.
+ *
+ * The queue passes this shape internally into the worker pipeline. Its fields
+ * describe the currently owned attempt and are used to enforce ownership checks
+ * for finish, fail, heartbeat, child blocking, and periodic rescheduling.
+ *
+ * See also {@link TaskContext} and {@link TaskStateSnapshot}.
  */
 export interface ScheduledTask {
   /**
-   * Task id in the DB.
+   * Persistent task id in the database.
    */
   id: number;
   /**
@@ -181,7 +256,7 @@ export interface ScheduledTask {
    */
   started: Date;
   /**
-   * Parent task id if this task was spawned by another task.
+   * Parent task id if this task was spawned by {@link TaskContext.spawnChild}.
    */
   parentId?: number;
   /**
@@ -189,19 +264,39 @@ export interface ScheduledTask {
    * */
   payload?: object;
   /**
-   * The name of the queue tasks belongs to.
+   * Queue name this task belongs to.
    */
   queue: string;
   /**
-   * The period type for the periodic tasks. Not set for regular task.
+   * Periodic scheduling mode for periodic tasks, or `undefined` for one-time tasks.
    */
   repeatType?: TaskPeriodType;
+  /**
+   * Timeout in milliseconds for the currently owned attempt.
+   *
+   * See also {@link ScheduleTaskDetails.timeout}.
+   */
   timeout: number;
 
+  /**
+   * Current attempt number starting from `1`.
+   */
   currentAttempt: number;
+  /**
+   * Maximum number of attempts allowed for this task.
+   */
   maxAttempts: number;
 }
 
+/**
+ * Parameters for a child task requested from inside a parent workflow.
+ *
+ * This extends the base one-time scheduling contract with parent-side
+ * orchestration metadata.
+ *
+ * See also {@link TaskContext.spawnChild}, {@link MultiStepTask}, and
+ * {@link SequentialTask}.
+ */
 export interface SpawnChildTaskDetails extends ScheduleTaskDetails {
   /**
    * If true, parent workflow may decide to continue when this child ends in terminal `error`.
@@ -212,33 +307,71 @@ export interface SpawnChildTaskDetails extends ScheduleTaskDetails {
   allowFailure?: boolean;
 }
 
+/**
+ * Persistent read-only snapshot of a task state used by orchestration code.
+ *
+ * Returned by {@link TaskContext.findTask} and exposed through
+ * {@link TaskContext.resolvedChildTask} when a blocked parent resumes after a
+ * child reaches a terminal state.
+ *
+ * See also {@link ManageTasksQueueService.findById} for the management view.
+ */
 export interface TaskStateSnapshot {
+  /**
+   * Persistent task id.
+   */
   id: number;
+  /**
+   * Parent task id if this is a child task.
+   */
   parentId: number | undefined;
+  /**
+   * Current persistent task status.
+   */
   status: TaskStatus;
   /**
    * Persisted task input and runtime state.
    */
   payload: object | undefined;
   /**
-   * Persisted final task result produced by the worker, if any.
+   * Persisted final result submitted by the worker, if any.
+   *
+   * Parent workflows should read child output from this field rather than from
+   * {@link payload}.
    */
   result: Option<object>;
+  /**
+   * Last persisted terminal or retry-triggering error message, if any.
+   */
   error: string | undefined;
 }
 
+/**
+ * Minimum interval between persisted heartbeat writes for the same attempt.
+ *
+ * Runtime code may call {@link TaskContext.ping} more often, but the queue
+ * throttles persistence to protect the database.
+ */
 export const TASK_HEARTBEAT_THROTTLE_MS = 60_000;
 
 /**
- * If this error is thrown from the process method of the task, then returned payload
- * will be stored as a new task payload, replacing the previous one.
+ * Signals a retryable task failure with payload replacement.
  *
- * This can be used to store additional task metadata for the special tasks, which
- * provide their own task flow.
+ * When thrown from {@link TasksWorker.process}, the queue treats the attempt as
+ * failed but, if retries remain, persists {@link payload} as the next retry
+ * payload instead of keeping the previous payload unchanged.
+ *
+ * This is especially useful for stateful retry flows that need to record
+ * derived retry metadata between attempts.
+ *
+ * See also {@link TaskContext.setPayload} and {@link TaskContext.submitResult}.
  */
 export class TaskFailed extends Error {
   constructor(
     message: string,
+    /**
+     * Replacement payload to persist for the next retry attempt.
+     */
     readonly payload: object,
   ) {
     super(message);
@@ -253,13 +386,35 @@ export class TaskFailed extends Error {
  */
 export class TaskTimedOutError extends Error {
   constructor(
+    /**
+     * Task id whose currently owned attempt timed out.
+     */
     readonly taskId: number,
+    /**
+     * Final status produced by timeout handling for this attempt.
+     *
+     * This is typically `pending` when retries remain or `error` when retries
+     * are exhausted.
+     */
     readonly finalStatus: TaskStatus,
   ) {
     super(`Task ${taskId} timed out before liveness was refreshed`);
   }
 }
 
+/**
+ * Runtime API exposed to {@link TasksWorker.process}.
+ *
+ * It provides liveness control, payload/result persistence, child orchestration,
+ * and child-state inspection for the currently owned attempt only.
+ *
+ * All mutating methods are ownership-aware: stale attempts may complete in
+ * memory, but they cannot mutate queue state once ownership has moved to a new
+ * attempt.
+ *
+ * See also {@link TasksWorker}, {@link MultiStepTask}, and
+ * {@link SequentialTask}.
+ */
 export interface TaskContext {
   /**
    * Current task id in persistent storage.
@@ -287,7 +442,8 @@ export interface TaskContext {
    *
    * Frequent repeated calls are throttled by the runtime and persistence layer.
    *
-   * Throws `TaskTimedOutError` if the current attempt has already exceeded the
+   * Returns a resolved promise when the task is still healthy. Throws
+   * {@link TaskTimedOutError} if the current attempt has already exceeded the
    * timeout window since the last persisted liveness point.
    */
   ping(): Promise<void>;
@@ -298,6 +454,7 @@ export interface TaskContext {
    * workflow state before blocking, finishing, or being rescheduled.
    *
    * @param payload next payload to persist
+   * @returns nothing; the payload is applied when the attempt resolves
    */
   setPayload(payload: object): void;
   /**
@@ -309,6 +466,7 @@ export interface TaskContext {
    * Unlike {@link setPayload}, this method is intended for task output, not workflow state.
    *
    * @param result final task result to persist
+   * @returns nothing; the result is persisted when the attempt resolves
    */
   submitResult(result: object): void;
   /**
@@ -319,6 +477,7 @@ export interface TaskContext {
    * while remaining independent from management services.
    *
    * @param taskId task id to load
+   * @returns snapshot of the task if found, otherwise `none`
    */
   findTask(taskId: number): Promise<Option<TaskStateSnapshot>>;
   /**
@@ -333,6 +492,7 @@ export interface TaskContext {
    * `childFailed(...)`.
    *
    * @param task one-time child task details
+   * @returns nothing; the child is created only after successful parent return
    */
   spawnChild(task: SpawnChildTaskDetails): void;
 }

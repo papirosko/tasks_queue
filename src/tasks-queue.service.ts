@@ -16,8 +16,18 @@ import { Clock, SystemClock } from "./clock.js";
 const logger = log4js.getLogger("TasksQueueService");
 
 export interface TasksQueueConfig {
+  /**
+   * Maximum number of tasks that may run concurrently in this service instance.
+   */
   concurrency: number;
+  /**
+   * Whether to run the background auxiliary worker for stalled-task handling,
+   * failed-task reset, finished-task cleanup, and metrics sync.
+   */
   runAuxiliaryWorker: boolean;
+  /**
+   * Fallback polling interval in milliseconds for the worker pipeline.
+   */
   loopInterval: number;
 }
 
@@ -140,6 +150,7 @@ export class TasksQueueService {
    * Notify internal polling loop that a task was scheduled for the given queue.
    *
    * @param queueName queue identifier
+   * @returns nothing; if the service is already started, the polling loop is nudged immediately
    */
   taskScheduled(queueName: string): void {
     this.worker.tasksScheduled(queueName);
@@ -150,11 +161,21 @@ export class TasksQueueService {
    *
    * @param queueName queue identifier
    * @param worker queue worker instance
+   * @returns nothing; the worker becomes eligible to receive future tasks from this queue
    */
   registerWorker(queueName: string, worker: TasksWorker) {
     this.worker.registerWorker(queueName, worker);
   }
 
+  /**
+   * Run at most one eligible task-processing cycle synchronously.
+   *
+   * This method is mainly useful in tests or in applications that want manual
+   * control over queue polling. It respects the same ownership, timeout, retry,
+   * and periodic semantics as the background loop.
+   *
+   * @returns resolved promise after the current cycle completes
+   */
   async runOnce(): Promise<void> {
     await this.worker.runOnce();
   }
@@ -164,6 +185,8 @@ export class TasksQueueService {
    *
    * Starts the main worker and, if enabled, the auxiliary worker responsible
    * for maintenance tasks.
+   *
+   * See also {@link stop}.
    */
   start() {
     try {
@@ -179,6 +202,8 @@ export class TasksQueueService {
    *
    * The method stops auxiliary processing first and then waits for the main
    * worker pipeline to finish in-flight tasks.
+   *
+   * @returns resolved promise once the service has stopped
    */
   async stop() {
     this.auxiliaryWorker.foreach((w) => w.stop());

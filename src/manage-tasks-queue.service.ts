@@ -12,6 +12,16 @@ import {
 } from "./manage.model.js";
 import { CronExpressionUtils } from "./cron-expression-utils.js";
 
+/**
+ * Operational management service for inspecting and mutating queued tasks.
+ *
+ * This service is intended for admin panels, support tooling, and maintenance
+ * workflows. It does not execute tasks itself; execution belongs to
+ * {@link TasksQueueService} and {@link TasksPoolsService}.
+ *
+ * See also {@link TaskDto}, {@link TasksResult}, {@link QueueStat}, and
+ * {@link TasksCount}.
+ */
 export class ManageTasksQueueService {
   constructor(private readonly pool: pg.Pool) {}
 
@@ -110,6 +120,11 @@ export class ManageTasksQueueService {
     return new TasksResult(items, total.rows[0]["total"]);
   }
 
+  /**
+   * Count tasks currently in terminal `error` state.
+   *
+   * @returns number of failed tasks as returned by PostgreSQL
+   */
   async failedCount() {
     const res = await this.pool.query(
       `select count(*) as total
@@ -119,6 +134,13 @@ export class ManageTasksQueueService {
     return res.rows[0]["total"];
   }
 
+  /**
+   * Delete all tasks currently in terminal `error` state.
+   *
+   * This is a bulk cleanup operation and does not filter by queue.
+   *
+   * @returns PostgreSQL query promise for the delete operation
+   */
   clearFailed() {
     return this.pool.query(`delete
                                 from tasks_queue
@@ -288,6 +310,14 @@ export class ManageTasksQueueService {
     return option(res.rowCount).getOrElseValue(0) > 0;
   }
 
+  /**
+   * Compute queue-level wait-time percentiles.
+   *
+   * Wait time is measured as `started - created` for first-attempt executions
+   * only. Results are grouped by queue and returned in seconds.
+   *
+   * @returns queue wait-time percentile stats
+   */
   async waitTimeByQueue(): Promise<Collection<QueueStat>> {
     const res = await this.pool.query(`
             SELECT queue,
@@ -316,6 +346,15 @@ export class ManageTasksQueueService {
     );
   }
 
+  /**
+   * Restart a single failed task by resetting it back to `pending`.
+   *
+   * This operation affects only tasks currently in terminal `error` state and
+   * resets their attempt counter to `0`.
+   *
+   * @param taskId task identifier
+   * @returns resolved promise when the update completes
+   */
   async restartFailedTask(taskId: number) {
     await this.pool.query(
       `
@@ -329,6 +368,14 @@ export class ManageTasksQueueService {
     );
   }
 
+  /**
+   * Restart all failed tasks in the selected queue.
+   *
+   * Only tasks currently in terminal `error` state are affected.
+   *
+   * @param queue queue name
+   * @returns resolved promise when the update completes
+   */
   async restartAllFailedInQueue(queue: string) {
     await this.pool.query(
       `
@@ -342,6 +389,14 @@ export class ManageTasksQueueService {
     );
   }
 
+  /**
+   * Count tasks grouped by queue and status.
+   *
+   * This method is used both by management UIs and by the auxiliary worker's
+   * metrics synchronization.
+   *
+   * @returns queue/status aggregate counts
+   */
   async tasksCount(): Promise<Collection<TasksCount>> {
     const res = await this.pool.query(`
             SELECT queue,
@@ -362,6 +417,14 @@ export class ManageTasksQueueService {
     );
   }
 
+  /**
+   * Compute queue-level work-time percentiles.
+   *
+   * Work time is measured as `finished - started` for tasks that have both
+   * timestamps. Results are grouped by queue and returned in seconds.
+   *
+   * @returns queue work-time percentile stats
+   */
   async workTimeByQueue(): Promise<Collection<QueueStat>> {
     const res = await this.pool.query(`
             SELECT queue,

@@ -21,6 +21,9 @@ export class ActiveChildState {
 
   /**
    * Create a shallow copy with selected fields replaced.
+   *
+   * @param o replacement fields
+   * @returns copied state with overrides applied
    */
   copy(o: Partial<ActiveChildState>): ActiveChildState {
     return new ActiveChildState(
@@ -31,6 +34,8 @@ export class ActiveChildState {
 
   /**
    * Serialize active child state into plain JSON for task payload persistence.
+   *
+   * @returns plain object suitable for embedding into {@link MultiStepPayload.toJson}
    */
   get toJson(): object {
     const res: Record<string, unknown> = {
@@ -46,6 +51,9 @@ export class ActiveChildState {
 
   /**
    * Deserialize active child state from plain JSON payload.
+   *
+   * @param j serialized active-child payload
+   * @returns parsed active-child state or `none` if the payload does not contain one
    */
   static fromJson(j: unknown) {
     return option(j)

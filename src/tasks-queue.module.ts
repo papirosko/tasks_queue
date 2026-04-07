@@ -20,11 +20,30 @@ import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { identity, option } from "scats";
 
 @Module({})
+/**
+ * NestJS integration module for the task queue library.
+ *
+ * The module wires together {@link TasksPoolsService},
+ * {@link ManageTasksQueueService}, and internal persistence services, then
+ * starts and stops queue processing with the NestJS application lifecycle.
+ *
+ * Use {@link forRootAsync} to configure database access and worker pools.
+ */
 export class TasksQueueModule
   implements OnApplicationBootstrap, OnApplicationShutdown
 {
   constructor(private readonly moduleRef: ModuleRef) {}
 
+  /**
+   * Create a dynamically configured queue module.
+   *
+   * The resulting module exports {@link TasksPoolsService} for scheduling and
+   * worker registration, and {@link ManageTasksQueueService} for operational
+   * management queries and mutations.
+   *
+   * @param options async configuration strategy
+   * @returns configured NestJS dynamic module
+   */
   static forRootAsync(options: TasksQueueAsyncOptions): DynamicModule {
     const asyncProviders = this.createAsyncProviders(options);
 
@@ -103,12 +122,22 @@ export class TasksQueueModule
     };
   }
 
+  /**
+   * Start queue processing after NestJS application bootstrap.
+   *
+   * @returns nothing; workers and optional auxiliary processing start in the background
+   */
   onApplicationBootstrap(): void {
     const poolsService =
       this.moduleRef.get<TasksPoolsService>(TasksPoolsService);
     poolsService.start();
   }
 
+  /**
+   * Stop queue processing during NestJS application shutdown.
+   *
+   * @returns resolved promise once queue services stop gracefully
+   */
   async onApplicationShutdown(): Promise<void> {
     const poolsService =
       this.moduleRef.get<TasksPoolsService>(TasksPoolsService);
