@@ -335,6 +335,8 @@ Key methods:
 
 - constructor accepts `Collection<TStep>`
 - `processStep(step, payload, context)` contains the business logic for the current step
+- inside `processStep(...)`, `context.setPayload(...)` accepts only the next `userPayload`
+  and `SequentialTask` wraps it back into the full persisted envelope automatically
 
 Built-in behavior:
 
@@ -405,6 +407,10 @@ class ProcessUploadedVideoTask extends SequentialTask<VideoStep, VideoPayload> {
                     await this.videosDao.updateStatus(payload.videoId, "ready");
                     break;
                 }
+                context.setPayload({
+                    ...payload,
+                    encodedPath: payload.encodedPath
+                });
                 context.spawnChild({
                     queue: "read-video-metadata",
                     allowFailure: true,

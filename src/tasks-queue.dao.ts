@@ -120,6 +120,9 @@ export class TasksQueueDao {
         const parentRes = await cl.query(
           `update tasks_queue
                set status = $1,
+                   attempt = greatest(attempt - 1, 0),
+                   started = null,
+                   last_heartbeat = null,
                    finished = null,
                    error = null
              where id = $2

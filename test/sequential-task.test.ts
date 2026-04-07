@@ -57,6 +57,28 @@ class ContextAwareSequentialTask extends SequentialTask<
   }
 }
 
+class PayloadUpdatingSequentialTask extends SequentialTask<
+  "scan" | "encode" | "metadata",
+  VideoPayload & { encodedPath?: string }
+> {
+  constructor() {
+    super(Collection.of("scan", "encode", "metadata"));
+  }
+
+  protected override async processStep(
+    step: "scan" | "encode" | "metadata",
+    payload: VideoPayload & { encodedPath?: string },
+    context: TaskContext,
+  ): Promise<void> {
+    if (step === "encode") {
+      context.setPayload({
+        ...payload,
+        encodedPath: "/videos/42.mp4",
+      });
+    }
+  }
+}
+
 const createContext = (): TaskContext => ({
   taskId: 1,
   currentAttempt: 1,
@@ -85,7 +107,12 @@ describe("SequentialTask", () => {
     expect(processStepSpy).toHaveBeenCalledWith(
       "scan",
       { videoId: 42 },
-      context,
+      expect.objectContaining({
+        taskId: context.taskId,
+        currentAttempt: context.currentAttempt,
+        maxAttempts: context.maxAttempts,
+        resolvedChildTask: context.resolvedChildTask,
+      }),
     );
   });
 
@@ -104,7 +131,12 @@ describe("SequentialTask", () => {
     expect(processStepSpy).toHaveBeenCalledWith(
       "scan",
       { videoId: 42 },
-      context,
+      expect.objectContaining({
+        taskId: context.taskId,
+        currentAttempt: context.currentAttempt,
+        maxAttempts: context.maxAttempts,
+        resolvedChildTask: context.resolvedChildTask,
+      }),
     );
   });
 
@@ -138,8 +170,43 @@ describe("SequentialTask", () => {
     expect(processStepSpy).toHaveBeenCalledWith(
       "encode",
       { videoId: 42 },
+      expect.objectContaining({
+        taskId: context.taskId,
+        currentAttempt: context.currentAttempt,
+        maxAttempts: context.maxAttempts,
+        resolvedChildTask: context.resolvedChildTask,
+      }),
+    );
+  });
+
+  it("treats context.setPayload in processStep as userPayload-only update", async () => {
+    const task = new PayloadUpdatingSequentialTask();
+    const context = createContext();
+
+    await (task as any).childFinished(
+      new MultiStepPayload(none, { step: "scan" }, { videoId: 42 }),
+      {
+        id: 10,
+        parentId: 1,
+        status: "finished",
+        payload: undefined,
+        result: none,
+        error: undefined,
+      } as TaskStateSnapshot,
       context,
     );
+
+    expect(context.setPayload).toHaveBeenNthCalledWith(1, {
+      workflowPayload: { step: "encode" },
+      userPayload: { videoId: 42 },
+    });
+    expect(context.setPayload).toHaveBeenNthCalledWith(2, {
+      workflowPayload: { step: "encode" },
+      userPayload: {
+        videoId: 42,
+        encodedPath: "/videos/42.mp4",
+      },
+    });
   });
 
   it("does not continue processing when current step is the last one", async () => {

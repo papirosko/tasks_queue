@@ -63,12 +63,15 @@ describe("Stalled heartbeat integration", () => {
       timeout: TimeUtils.second,
     });
 
+    // Start the task and leave it running without any heartbeat updates.
     void test.tasksQueueService.runOnce();
     await bus.waitForStarted(taskId.get);
 
+    // Move clock past timeout and ask DAO to detect stalled tasks.
     clock.advance(TimeUtils.second + 1);
     const stalled = await test.tasksQueueDao.failStalled(clock.now());
 
+    // Confirm that the running task was marked as timed out in persistent storage.
     expect(stalled.toArray).toEqual([taskId.get]);
     const task = await test.manageTasksQueueService.findById(taskId.get);
     expect(task.isDefined).toBe(true);
@@ -86,12 +89,14 @@ describe("Stalled heartbeat integration", () => {
       timeout: TimeUtils.second,
     });
 
+    // Start the task and refresh its heartbeat before the timeout threshold.
     void test.tasksQueueService.runOnce();
     await bus.waitForStarted(taskId.get);
 
     clock.advance(TimeUtils.second - 100);
     await worker.ping(taskId.get);
 
+    // Move slightly forward and verify that the refreshed heartbeat prevents stalling.
     clock.advance(200);
     const stalled = await test.tasksQueueDao.failStalled(clock.now());
 

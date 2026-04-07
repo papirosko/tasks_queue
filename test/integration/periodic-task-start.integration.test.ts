@@ -87,6 +87,7 @@ describe("Periodic task start integration", () => {
     payload: object,
     expectedNextStartAfter: Date,
   ): Promise<void> {
+    // Create the periodic task and confirm that it is stored as pending with the requested schedule.
     const taskId = await schedule();
 
     expect(taskId.isDefined).toBe(true);
@@ -98,18 +99,22 @@ describe("Periodic task start integration", () => {
     expect(scheduledTask.get.repeatType.orUndefined).toBe(repeatType);
     expect(scheduledTask.get.startAfter.orUndefined).toEqual(scheduledStart);
 
+    // Run polling before the due time; the task must not start yet.
     await test.tasksQueueService.runOnce();
     expect(startedEventsCount(taskId.get)).toBe(0);
 
+    // Move clock just before the scheduled instant and verify it is still not eligible.
     clock.set(new Date(scheduledStart.getTime() - 1));
     await test.tasksQueueService.runOnce();
     expect(startedEventsCount(taskId.get)).toBe(0);
 
+    // Reload task to verify it remains pending until the exact scheduled time.
     const beforeStartTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(beforeStartTask.isDefined).toBe(true);
     expect(beforeStartTask.get.status).toBe(TaskStatus.pending);
     expect(beforeStartTask.get.payload).toEqual(payload);
 
+    // Advance clock to the scheduled instant and trigger processing.
     clock.set(scheduledStart);
     const runPromise = test.tasksQueueService.runOnce();
 
@@ -119,6 +124,7 @@ describe("Periodic task start integration", () => {
       payload,
     });
 
+    // Verify that the periodic task is now in progress and attempt counter was incremented.
     const startedTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(startedTask.isDefined).toBe(true);
     expect(startedTask.get.status).toBe(TaskStatus.in_progress);
@@ -126,9 +132,11 @@ describe("Periodic task start integration", () => {
     expect(startedTask.get.payload).toEqual(payload);
     expect(startedTask.get.result).toBeNull();
 
+    // Complete the run; periodic tasks should reschedule instead of finishing terminally.
     worker.complete(taskId.get, { ok: true });
     await runPromise;
 
+    // Validate that the task returned to pending state with attempts reset and next start computed.
     const rescheduledTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(rescheduledTask.isDefined).toBe(true);
     expect(rescheduledTask.get.status).toBe(TaskStatus.pending);

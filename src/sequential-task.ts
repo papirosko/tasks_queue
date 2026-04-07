@@ -34,6 +34,12 @@ import { TaskContext, TaskStateSnapshot } from "./tasks-model.js";
  * This leaves subclasses with a single responsibility: implement `processStep(...)` and branch
  * on the current step.
  *
+ * Special `TaskContext.setPayload(...)` semantics inside `processStep(...)`:
+ * - unlike plain `MultiStepTask`, sequential step handlers pass only the next `userPayload`
+ * - `SequentialTask` wraps that value back into the full `MultiStepPayload` envelope
+ * - `workflowPayload.step` remains owned by `SequentialTask` and should not be managed by
+ *   subclasses directly
+ *
  * The abstraction is intentionally happy-path only: the built-in behavior is "complete all
  * configured steps or fail the parent task". If a workflow needs branching recovery logic,
  * compensation, or custom error transitions, use {@link MultiStepTask} directly instead.
@@ -155,6 +161,41 @@ export abstract class SequentialTask<
   ): Promise<void>;
 
   /**
+   * Adapt runtime context for sequential steps so step handlers work with user payload only.
+   *
+   * In `SequentialTask`, `context.setPayload(...)` inside `processStep(...)` accepts only the next
+   * `userPayload`. This adapter preserves all other context operations while wrapping user payloads
+   * back into the persisted multi-step envelope with the current sequential step.
+   */
+  private processStepContext(
+    payload: MultiStepPayload<TUserPayload>,
+    context: TaskContext,
+    step: TStep,
+  ): TaskContext {
+    return {
+      taskId: context.taskId,
+      currentAttempt: context.currentAttempt,
+      maxAttempts: context.maxAttempts,
+      resolvedChildTask: context.resolvedChildTask,
+      ping: () => context.ping(),
+      setPayload: (userPayload: object) => {
+        context.setPayload(
+          payload.copy({
+            workflowPayload: {
+              ...payload.workflowPayload,
+              step,
+            },
+            userPayload: userPayload as TUserPayload,
+          }).toJson,
+        );
+      },
+      submitResult: (result: object) => context.submitResult(result),
+      findTask: (taskId: number) => context.findTask(taskId),
+      spawnChild: (task) => context.spawnChild(task),
+    };
+  }
+
+  /**
    * Delegate no-child processing to {@link processStep}.
    *
    * @param payload current multi-step payload
@@ -176,7 +217,11 @@ export abstract class SequentialTask<
             }).toJson,
           );
         }
-        await this.processStep(step, payload.userPayload, context);
+        await this.processStep(
+          step,
+          payload.userPayload,
+          this.processStepContext(payload, context, step),
+        );
       },
       none: async () => {
         throw new Error(
@@ -215,7 +260,11 @@ export abstract class SequentialTask<
               },
             });
             context.setPayload(nextPayload.toJson);
-            await this.processStep(step, nextPayload.userPayload, context);
+            await this.processStep(
+              step,
+              nextPayload.userPayload,
+              this.processStepContext(nextPayload, context, step),
+            );
           },
           none: async () => {
             // no next step configured

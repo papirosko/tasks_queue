@@ -97,6 +97,35 @@ describe("TasksQueueDao", () => {
     expect(release).toHaveBeenCalled();
   });
 
+  it("does not consume a parent attempt when moving task to blocked", async () => {
+    const query: any = jest.fn();
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 7 }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 99 }] });
+    query.mockResolvedValueOnce({ rows: [] });
+    query.mockResolvedValueOnce({ rows: [] });
+    const { dao, release } = createDao(query);
+
+    await dao.blockParentAndScheduleChild(
+      7,
+      {
+        queue: "child-q",
+        payload: { child: true },
+      },
+      {
+        workflowPayload: { stage: "scan" },
+        userPayload: { id: 1 },
+      },
+    );
+
+    expect(query.mock.calls[1][0]).toContain(
+      "attempt = greatest(attempt - 1, 0)",
+    );
+    expect(query.mock.calls[1][0]).toContain("started = null");
+    expect(query.mock.calls[1][0]).toContain("last_heartbeat = null");
+    expect(release).toHaveBeenCalled();
+  });
+
   it("loads task snapshots with payload and result", async () => {
     const query = jest.fn(async () => ({
       rows: [

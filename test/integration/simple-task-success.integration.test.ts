@@ -35,10 +35,12 @@ describe("Simple task integration", () => {
 
     expect(taskId.isDefined).toBe(true);
 
+    // Reload the task right after scheduling and verify the initial persisted payload.
     const scheduledTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(scheduledTask.isDefined).toBe(true);
     expect(scheduledTask.get.payload).toEqual(payload);
 
+    // Run one queue pass and wait until the worker actually starts the task.
     const runPromise = test.tasksQueueService.runOnce();
 
     await expect(bus.waitForStarted(taskId.get)).resolves.toEqual({
@@ -47,6 +49,7 @@ describe("Simple task integration", () => {
       payload,
     });
 
+    // Confirm that the task moved to in-progress state and no result has been persisted yet.
     const startedTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(startedTask.isDefined).toBe(true);
     expect(startedTask.get.status).toBe(TaskStatus.in_progress);
@@ -54,6 +57,7 @@ describe("Simple task integration", () => {
     expect(startedTask.get.result).toBeNull();
     expect(worker.isActive(taskId.get)).toBe(true);
 
+    // Complete the task with a submitted result and wait for the completion event.
     worker.complete(taskId.get, { ok: true });
 
     await expect(bus.waitForCompleted(taskId.get)).resolves.toEqual({
@@ -63,6 +67,7 @@ describe("Simple task integration", () => {
     });
     await runPromise;
 
+    // Reload the row and verify final finished state together with the persisted result.
     const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(finishedTask.isDefined).toBe(true);
     expect(finishedTask.get.status).toBe(TaskStatus.finished);

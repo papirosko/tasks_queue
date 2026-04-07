@@ -38,12 +38,16 @@ describe("Lifecycle callbacks integration", () => {
       payload,
     });
 
+    // Start one processing pass and wait until the worker actually picks the task up.
     const runPromise = test.tasksQueueService.runOnce();
     await bus.waitForStarted(taskId.get);
+
+    // Complete the active execution and wait for the callback-side completion event.
     worker.complete(taskId.get, { ok: true });
     await bus.waitForCompleted(taskId.get);
     await runPromise;
 
+    // Verify that success lifecycle hooks ran and failure hook was not touched.
     expect(worker.startingCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
     expect(worker.completedCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
     expect(worker.failedCalls.toArray).toEqual([]);
@@ -57,12 +61,14 @@ describe("Lifecycle callbacks integration", () => {
       retries: 1,
     });
 
+    // Start the task, then fail it so the queue resolves it as a terminal error.
     const runPromise = test.tasksQueueService.runOnce();
     await bus.waitForStarted(taskId.get);
     worker.fail(taskId.get, new Error("boom"));
     await bus.waitForFailed(taskId.get);
     await runPromise;
 
+    // Confirm that the failure callback receives the final terminal status.
     expect(worker.startingCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
     expect(worker.completedCalls.toArray).toEqual([]);
     expect(worker.failedCalls.toArray).toEqual([
@@ -84,12 +90,14 @@ describe("Lifecycle callbacks integration", () => {
       backoff: TimeUtils.minute,
     });
 
+    // Start the task and fail the first attempt while retries are still available.
     const runPromise = test.tasksQueueService.runOnce();
     await bus.waitForStarted(taskId.get);
     worker.fail(taskId.get, new Error("boom"));
     await bus.waitForFailed(taskId.get);
     await runPromise;
 
+    // Confirm that the failure callback sees a retryable pending status, not terminal error.
     expect(worker.failedCalls.toArray).toEqual([
       {
         taskId: taskId.get,

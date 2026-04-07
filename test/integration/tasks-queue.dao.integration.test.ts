@@ -28,6 +28,7 @@ describe("TasksQueueService integration", () => {
 
     expect(taskId.isDefined).toBe(true);
 
+    // Load the stored row from Postgres and verify that schedule() persisted all key fields.
     const task = await test.manageTasksQueueService.findById(taskId.get);
 
     expect(task.isDefined).toBe(true);
