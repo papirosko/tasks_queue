@@ -9,6 +9,11 @@
 ### Added
 - Added unit coverage for cross-pool queue notification dispatch in `TasksQueueWorker`.
 - Added an integration test that reproduces cross-pool parent-child execution with `loopInterval = 1 minute` and verifies prompt child start and parent wake-up.
+- Added unit and integration coverage for `SequentialTask` flows that contain intermediate steps without `spawnChild(...)`, including database assertions for persisted parent payload and final result.
+
+### Changed
+- Changed `SequentialTask` so a step that finishes without `context.spawnChild(...)` automatically advances to the next configured step in the same parent execution.
+- Updated README and multi-step workflow documentation to describe mixed sequential flows such as `child -> local step -> child`.
 
 ## 1.7.4
 

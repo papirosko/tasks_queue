@@ -156,8 +156,16 @@ Inside `processStep(...)`, `context.setPayload(...)` accepts only the next `user
 Default behavior:
 
 - after child success, move to the next configured step and run it immediately
+- if that next step finishes without `spawnChild(...)`, continue to subsequent configured steps in the same parent execution
 - after child failure, fail the parent
 - if the failed child had `allowFailure=true`, continue to the next configured step instead
+
+Practical consequence:
+
+- `SequentialTask` supports mixed workflows such as `child -> local step -> child -> local step`
+- local steps should use `context.setPayload(...)` for state that the next step or a future parent retry must see
+- the parent becomes `blocked` only when the currently executing step actually calls `context.spawnChild(...)`
+- if the last configured step finishes without spawning a child, the parent finishes normally
 
 ## Result propagation
 

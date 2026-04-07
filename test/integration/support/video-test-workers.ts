@@ -19,6 +19,7 @@ export const VIDEO_PARENT_POST_CHILD_CRASH_QUEUE =
   "video-parent-post-child-crash";
 export const VIDEO_PARENT_TASK_FAILED_QUEUE = "video-parent-task-failed";
 export const VIDEO_TASK_FAILED_UPLOAD_QUEUE = "video-task-failed-upload";
+export const VIDEO_PARENT_LOCAL_STEP_QUEUE = "video-parent-local-step";
 
 /**
  * User payload shape used by the video workflow test workers.
@@ -100,6 +101,90 @@ export class SequentialVideoWorker extends SequentialTask<
         });
         return;
       }
+      case "aggregate": {
+        const metadataResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as VideoWorkflowPayload["metadataResult"];
+        context.setPayload({
+          ...payload,
+          metadataResult,
+        });
+        context.submitResult({
+          videoId: payload.videoId,
+          upload: payload.uploadResult,
+          metadata: metadataResult,
+        });
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * Happy-path sequential workflow with an intermediate local step that does not
+ * spawn a child.
+ *
+ * Usage in tests:
+ * - register this worker under {@link VIDEO_PARENT_LOCAL_STEP_QUEUE}
+ * - also register {@link UploadVideoWorker} under {@link VIDEO_UPLOAD_QUEUE}
+ * - also register {@link ReadVideoMetadataWorker} under {@link VIDEO_METADATA_QUEUE}
+ * - schedule parent task with `MultiStepPayload.forUserPayload({ videoId }).toJson`
+ * - first parent run spawns upload child
+ * - second parent run resumes after upload, stores upload result in a local-only step,
+ *   then immediately advances to metadata and spawns metadata child in the same parent execution
+ * - final parent run aggregates metadata into final output
+ *
+ * This worker exists specifically to verify the `SequentialTask` nuance where a
+ * step that does not call `context.spawnChild(...)` auto-continues to the next
+ * configured step without finishing the parent early.
+ */
+export class SequentialVideoWithLocalStepWorker extends SequentialTask<
+  "upload" | "prepare-metadata" | "metadata" | "aggregate",
+  VideoWorkflowPayload
+> {
+  constructor() {
+    super(
+      Collection.of("upload", "prepare-metadata", "metadata", "aggregate"),
+    );
+  }
+
+  protected override async processStep(
+    step: "upload" | "prepare-metadata" | "metadata" | "aggregate",
+    payload: VideoWorkflowPayload,
+    context: TaskContext,
+  ): Promise<void> {
+    switch (step) {
+      case "upload":
+        context.spawnChild({
+          queue: VIDEO_UPLOAD_QUEUE,
+          payload: {
+            videoId: payload.videoId,
+          },
+        });
+        return;
+      case "prepare-metadata": {
+        const uploadResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as VideoWorkflowPayload["uploadResult"];
+        context.setPayload({
+          ...payload,
+          uploadResult,
+        });
+        return;
+      }
+      case "metadata":
+        context.spawnChild({
+          queue: VIDEO_METADATA_QUEUE,
+          payload: {
+            path:
+              payload.uploadResult !== undefined &&
+              payload.uploadResult !== null &&
+              "path" in payload.uploadResult
+                ? String(payload.uploadResult.path)
+                : "",
+          },
+        });
+        return;
       case "aggregate": {
         const metadataResult = context.resolvedChildTask.flatMap(
           (task) => task.result,

@@ -387,6 +387,11 @@ Use:
 - `SequentialTask` for linear happy-path workflows
 - `MultiStepPayload` as the required parent payload envelope
 
+`SequentialTask` now also supports intermediate in-process steps that do not
+spawn a child task. If a step returns without calling `context.spawnChild(...)`,
+the workflow automatically advances to the next configured step in the same
+parent execution.
+
 Detailed guide:
 
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md)

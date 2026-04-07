@@ -80,6 +80,45 @@ class PayloadUpdatingSequentialTask extends SequentialTask<
   }
 }
 
+class AutoContinuingSequentialTask extends SequentialTask<
+  "scan" | "encode" | "metadata",
+  VideoPayload & { encodedPath?: string }
+> {
+  readonly visitedSteps = new mutable.ArrayBuffer<string>();
+
+  constructor() {
+    super(Collection.of("scan", "encode", "metadata"));
+  }
+
+  protected override async processStep(
+    step: "scan" | "encode" | "metadata",
+    payload: VideoPayload & { encodedPath?: string },
+    context: TaskContext,
+  ): Promise<void> {
+    this.visitedSteps.append(step);
+    switch (step) {
+      case "scan":
+        context.spawnChild({
+          queue: "child-q",
+          payload: { videoId: payload.videoId },
+        });
+        return;
+      case "encode":
+        context.setPayload({
+          ...payload,
+          encodedPath: "/videos/42.mp4",
+        });
+        return;
+      case "metadata":
+        context.submitResult({
+          videoId: payload.videoId,
+          encodedPath: payload.encodedPath,
+        });
+        return;
+    }
+  }
+}
+
 const createContext = (): TaskContext => ({
   taskId: 1,
   currentAttempt: 1,
@@ -207,6 +246,48 @@ describe("SequentialTask", () => {
         videoId: 42,
         encodedPath: "/videos/42.mp4",
       },
+    });
+  });
+
+  it("auto-continues to the next step when a sequential step finishes without spawning a child", async () => {
+    const task = new AutoContinuingSequentialTask();
+    const context = createContext();
+
+    await (task as any).childFinished(
+      new MultiStepPayload(none, { step: "scan" }, { videoId: 42 }),
+      {
+        id: 10,
+        parentId: 1,
+        status: "finished",
+        payload: undefined,
+        result: none,
+        error: undefined,
+      } as TaskStateSnapshot,
+      context,
+    );
+
+    expect(task.visitedSteps.toArray).toEqual(["encode", "metadata"]);
+    expect(context.setPayload).toHaveBeenNthCalledWith(1, {
+      workflowPayload: { step: "encode" },
+      userPayload: { videoId: 42 },
+    });
+    expect(context.setPayload).toHaveBeenNthCalledWith(2, {
+      workflowPayload: { step: "encode" },
+      userPayload: {
+        videoId: 42,
+        encodedPath: "/videos/42.mp4",
+      },
+    });
+    expect(context.setPayload).toHaveBeenNthCalledWith(3, {
+      workflowPayload: { step: "metadata" },
+      userPayload: {
+        videoId: 42,
+        encodedPath: "/videos/42.mp4",
+      },
+    });
+    expect(context.submitResult).toHaveBeenCalledWith({
+      videoId: 42,
+      encodedPath: "/videos/42.mp4",
     });
   });
 

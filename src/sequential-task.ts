@@ -180,11 +180,7 @@ export abstract class SequentialTask<
               },
             });
             context.setPayload(nextPayload.toJson);
-            await this.processStep(
-              step,
-              nextPayload.userPayload,
-              this.processStepContext(nextPayload, context, step),
-            );
+            await this.runStep(nextPayload, step, context);
           },
           none: async () => {
             // no next step configured
@@ -210,6 +206,10 @@ export abstract class SequentialTask<
     payload: MultiStepPayload<TUserPayload>,
     context: TaskContext,
     step: TStep,
+    trackers?: {
+      onSetPayload?: (payload: MultiStepPayload<TUserPayload>) => void;
+      onSpawnChild?: () => void;
+    },
   ): TaskContext {
     return {
       taskId: context.taskId,
@@ -218,20 +218,47 @@ export abstract class SequentialTask<
       resolvedChildTask: context.resolvedChildTask,
       ping: () => context.ping(),
       setPayload: (userPayload: object) => {
-        context.setPayload(
-          payload.copy({
-            workflowPayload: {
-              ...payload.workflowPayload,
-              step,
-            },
-            userPayload: userPayload as TUserPayload,
-          }).toJson,
-        );
+        const nextPayload = payload.copy({
+          workflowPayload: {
+            ...payload.workflowPayload,
+            step,
+          },
+          userPayload: userPayload as TUserPayload,
+        });
+        trackers?.onSetPayload?.(nextPayload);
+        context.setPayload(nextPayload.toJson);
       },
       submitResult: (result: object) => context.submitResult(result),
       findTask: (taskId: number) => context.findTask(taskId),
-      spawnChild: (task) => context.spawnChild(task),
+      spawnChild: (task) => {
+        trackers?.onSpawnChild?.();
+        context.spawnChild(task);
+      },
     };
+  }
+
+  private async runStep(
+    payload: MultiStepPayload<TUserPayload>,
+    step: TStep,
+    context: TaskContext,
+  ): Promise<void> {
+    let effectivePayload = payload;
+    let childSpawned = false;
+    await this.processStep(
+      step,
+      payload.userPayload,
+      this.processStepContext(payload, context, step, {
+        onSetPayload: (nextPayload) => {
+          effectivePayload = nextPayload;
+        },
+        onSpawnChild: () => {
+          childSpawned = true;
+        },
+      }),
+    );
+    if (!childSpawned) {
+      await this.continueToNextStep(effectivePayload, context);
+    }
   }
 
   /**
@@ -256,11 +283,7 @@ export abstract class SequentialTask<
             }).toJson,
           );
         }
-        await this.processStep(
-          step,
-          payload.userPayload,
-          this.processStepContext(payload, context, step),
-        );
+        await this.runStep(payload, step, context);
       },
       none: async () => {
         throw new Error(
@@ -273,15 +296,17 @@ export abstract class SequentialTask<
   /**
    * Advance workflow state to the next configured step after successful child completion.
    *
-   * Default behavior:
-   * - update `workflowPayload.step` to the next configured step
-   * - persist updated payload
-   * - immediately continue with `processStep(...)`
-   *
-   * @param payload current multi-step payload
-   * @param _childTask completed child snapshot
-   * @param context task runtime context
-   */
+ * Default behavior:
+ * - update `workflowPayload.step` to the next configured step
+ * - persist updated payload
+ * - immediately continue with `processStep(...)`
+ * - if that step finishes without `spawnChild(...)`, continue again until a
+ *   child is spawned or the configured step list is exhausted
+ *
+ * @param payload current multi-step payload
+ * @param _childTask completed child snapshot
+ * @param context task runtime context
+ */
   protected override async childFinished(
     payload: MultiStepPayload<TUserPayload>,
     _childTask: TaskStateSnapshot,
