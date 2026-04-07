@@ -14,7 +14,6 @@ describe("Simple task integration", () => {
   beforeAll(async () => {
     await test.start();
     test.tasksQueueService.registerWorker("email", worker);
-    test.startQueueService();
   });
 
   afterAll(async () => {
@@ -23,6 +22,8 @@ describe("Simple task integration", () => {
 
   beforeEach(async () => {
     await test.reset();
+    bus.reset();
+    worker.reset();
   });
 
   it("starts and successfully finishes a controlled task with submitted result", async () => {
@@ -37,6 +38,8 @@ describe("Simple task integration", () => {
     const scheduledTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(scheduledTask.isDefined).toBe(true);
     expect(scheduledTask.get.payload).toEqual(payload);
+
+    const runPromise = test.tasksQueueService.runOnce();
 
     await expect(bus.waitForStarted(taskId.get)).resolves.toEqual({
       type: "started",
@@ -58,6 +61,7 @@ describe("Simple task integration", () => {
       taskId: taskId.get,
       result: { ok: true },
     });
+    await runPromise;
 
     const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
     expect(finishedTask.isDefined).toBe(true);

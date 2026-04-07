@@ -43,8 +43,8 @@ export class TasksQueueDao {
     cl: PoolClient,
     task: ScheduleTaskDetails,
     parentId?: number,
+    now: Date = new Date(),
   ): Promise<Option<number>> {
-    const now = new Date();
     const res = await cl.query(
       `insert into tasks_queue (parent_id, queue, created, status, priority, payload, timeout, max_attempts,
                                         start_after, initial_start, backoff, backoff_type)
@@ -87,9 +87,12 @@ export class TasksQueueDao {
    * @return the id of the created task
    */
   @Metric()
-  async schedule(task: ScheduleTaskDetails): Promise<Option<number>> {
+  async schedule(
+    task: ScheduleTaskDetails,
+    now: Date = new Date(),
+  ): Promise<Option<number>> {
     return await this.withClient(async (cl) => {
-      return this.insertOneTimeTask(cl, task);
+      return this.insertOneTimeTask(cl, task, undefined, now);
     });
   }
 
@@ -109,6 +112,7 @@ export class TasksQueueDao {
     parentTaskId: number,
     childTask: SpawnChildTaskDetails,
     parentPayload: object,
+    now: Date = new Date(),
   ): Promise<Option<number>> {
     return await this.withClient(async (cl) => {
       await cl.query("BEGIN");
@@ -134,6 +138,7 @@ export class TasksQueueDao {
           cl,
           childTask,
           parentTaskId,
+          now,
         );
         await childTaskId.mapPromise(async (id) => {
           await cl.query(
@@ -182,8 +187,8 @@ export class TasksQueueDao {
   async schedulePeriodic(
     task: SchedulePeriodicTaskDetails | ScheduleCronTaskDetails,
     periodType: TaskPeriodType,
+    now: Date = new Date(),
   ): Promise<Option<number>> {
-    const now = new Date();
     // Build a consistent storage representation before writing to the database.
     // Exactly one of repeat_interval or cron_expression must be set.
     const repeatInterval = PeriodicScheduleUtils.resolveRepeatInterval(
@@ -253,12 +258,11 @@ export class TasksQueueDao {
   @Metric()
   async nextPending(
     queueNames: HashSet<string>,
+    now: Date = new Date(),
   ): Promise<Option<ScheduledTask>> {
     if (queueNames.isEmpty) {
       return none;
     }
-
-    const now = new Date();
     const placeholders = queueNames.zipWithIndex
       .map(([_, idx]) => `$${idx + 4}`)
       .mkString(",");
@@ -345,8 +349,7 @@ export class TasksQueueDao {
   }
 
   @Metric()
-  async ping(taskId: number): Promise<void> {
-    const now = new Date();
+  async ping(taskId: number, now: Date = new Date()): Promise<void> {
     const cutoff = new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS);
     await this.withClient(async (cl) => {
       await cl.query(
@@ -376,12 +379,13 @@ export class TasksQueueDao {
    * @returns The earliest future `start_after` timestamp, if any.
    */
   @Metric()
-  async peekNextStartAfter(queueNames: HashSet<string>): Promise<Option<Date>> {
+  async peekNextStartAfter(
+    queueNames: HashSet<string>,
+    now: Date = new Date(),
+  ): Promise<Option<Date>> {
     if (queueNames.isEmpty) {
       return none;
     }
-
-    const now = new Date();
     const placeholders = queueNames.zipWithIndex
       .map(([_, idx]) => `$${idx + 4}`)
       .mkString(",");
@@ -413,8 +417,8 @@ export class TasksQueueDao {
     taskId: number,
     nextPayload?: object,
     result?: object,
+    now: Date = new Date(),
   ): Promise<void> {
-    const now = new Date();
     await this.withClient(async (cl) => {
       await cl.query(
         `update tasks_queue
@@ -449,8 +453,8 @@ export class TasksQueueDao {
   @Metric()
   async wakeParentOnChildTerminal(
     childTaskId: number,
+    now: Date = new Date(),
   ): Promise<Option<{ id: number; queue: string }>> {
-    const now = new Date();
     return await this.withClient(async (cl) => {
       const res = await cl.query(
         `update tasks_queue p
@@ -496,9 +500,9 @@ export class TasksQueueDao {
     taskId: number,
     nextPayload?: object,
     result?: object,
+    now: Date = new Date(),
   ): Promise<void> {
     await this.withClient(async (cl) => {
-      const now = new Date();
       await cl.query("BEGIN");
       try {
         // Lock the row and read scheduling parameters atomically to avoid races.
@@ -613,9 +617,8 @@ export class TasksQueueDao {
     error: string,
     nextPayload?: object,
     result?: object,
+    now: Date = new Date(),
   ): Promise<TaskStatus> {
-    const now = new Date();
-
     return await this.withClient(async (cl) => {
       // TODO: extract shared fail/retry SQL so fail() and failStalled() use one transition definition.
       const res = await cl.query(
@@ -683,8 +686,7 @@ export class TasksQueueDao {
    * @return ids of stalled tasks whose status was updated
    */
   @Metric()
-  async failStalled(): Promise<Collection<number>> {
-    const now = new Date();
+  async failStalled(now: Date = new Date()): Promise<Collection<number>> {
     return await this.withClient(async (cl) => {
       await cl.query("BEGIN");
       try {
@@ -785,8 +787,11 @@ export class TasksQueueDao {
    * @param timeout the duration between the time, when the task was finished and current timestamp
    */
   @Metric()
-  async clearFinished(timeout: number = TimeUtils.day): Promise<void> {
-    const expired = new Date(Date.now() - timeout);
+  async clearFinished(
+    timeout: number = TimeUtils.day,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const expired = new Date(now.getTime() - timeout);
     await this.withClient(async (cl) => {
       await cl.query(
         `with recursive ancestors as (

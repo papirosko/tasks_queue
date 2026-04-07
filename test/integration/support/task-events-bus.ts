@@ -34,6 +34,11 @@ type Deferred<T> = {
     resolve: (value: T) => void;
 };
 
+type CountedDeferred<TEvent extends TestTaskEvent> = {
+    deferred: Deferred<TEvent>;
+    occurrence: number;
+};
+
 const createDeferred = <T>(): Deferred<T> => {
     let resolveFn: ((value: T) => void) | undefined;
     const promise = new Promise<T>((resolve) => {
@@ -55,11 +60,11 @@ export class TestTaskEventsBus {
     private readonly eventsByTaskId =
         new mutable.HashMap<number, mutable.ArrayBuffer<TestTaskEvent>>();
     private readonly startedWaiters =
-        new mutable.HashMap<number, mutable.ArrayBuffer<Deferred<StartedTaskEvent>>>();
+        new mutable.HashMap<number, mutable.ArrayBuffer<CountedDeferred<StartedTaskEvent>>>();
     private readonly completedWaiters =
-        new mutable.HashMap<number, mutable.ArrayBuffer<Deferred<CompletedTaskEvent>>>();
+        new mutable.HashMap<number, mutable.ArrayBuffer<CountedDeferred<CompletedTaskEvent>>>();
     private readonly failedWaiters =
-        new mutable.HashMap<number, mutable.ArrayBuffer<Deferred<FailedTaskEvent>>>();
+        new mutable.HashMap<number, mutable.ArrayBuffer<CountedDeferred<FailedTaskEvent>>>();
 
     emitStarted(taskId: number, payload?: object): StartedTaskEvent {
         const event: StartedTaskEvent = {
@@ -101,29 +106,36 @@ export class TestTaskEventsBus {
             .getOrElseValue(Collection.from<TestTaskEvent>([]));
     }
 
-    waitForStarted(taskId: number): Promise<StartedTaskEvent> {
-        return this.findEvent(taskId, TestTaskEventType.started).match({
+    waitForStarted(taskId: number, occurrence: number = 1): Promise<StartedTaskEvent> {
+        return this.findEvent(taskId, TestTaskEventType.started, occurrence).match({
             some: (event) => Promise.resolve(event as StartedTaskEvent),
-            none: () => this.registerWaiter(taskId, this.startedWaiters).promise,
+            none: () => this.registerWaiter(taskId, occurrence, this.startedWaiters).promise,
         });
     }
 
-    waitForCompleted(taskId: number): Promise<CompletedTaskEvent> {
-        return this.findEvent(taskId, TestTaskEventType.completed).match({
+    waitForCompleted(taskId: number, occurrence: number = 1): Promise<CompletedTaskEvent> {
+        return this.findEvent(taskId, TestTaskEventType.completed, occurrence).match({
             some: (event) => Promise.resolve(event as CompletedTaskEvent),
-            none: () => this.registerWaiter(taskId, this.completedWaiters).promise,
+            none: () => this.registerWaiter(taskId, occurrence, this.completedWaiters).promise,
         });
     }
 
-    waitForFailed(taskId: number): Promise<FailedTaskEvent> {
-        return this.findEvent(taskId, TestTaskEventType.failed).match({
+    waitForFailed(taskId: number, occurrence: number = 1): Promise<FailedTaskEvent> {
+        return this.findEvent(taskId, TestTaskEventType.failed, occurrence).match({
             some: (event) => Promise.resolve(event as FailedTaskEvent),
-            none: () => this.registerWaiter(taskId, this.failedWaiters).promise,
+            none: () => this.registerWaiter(taskId, occurrence, this.failedWaiters).promise,
         });
     }
 
     latest(taskId: number): Option<TestTaskEvent> {
         return this.events(taskId).lastOption;
+    }
+
+    reset(): void {
+        this.eventsByTaskId.clear();
+        this.startedWaiters.clear();
+        this.completedWaiters.clear();
+        this.failedWaiters.clear();
     }
 
     private appendEvent(event: TestTaskEvent): void {
@@ -137,19 +149,27 @@ export class TestTaskEventsBus {
     private findEvent(
         taskId: number,
         type: TestTaskEventType,
+        occurrence: number,
     ): Option<TestTaskEvent> {
-        return this.events(taskId).find((event) => event.type === type);
+        return this.events(taskId)
+            .filter((event) => event.type === type)
+            .drop(occurrence - 1)
+            .headOption;
     }
 
     private registerWaiter<TEvent extends TestTaskEvent>(
         taskId: number,
-        waitersMap: mutable.HashMap<number, mutable.ArrayBuffer<Deferred<TEvent>>>,
+        occurrence: number,
+        waitersMap: mutable.HashMap<number, mutable.ArrayBuffer<CountedDeferred<TEvent>>>,
     ): Deferred<TEvent> {
         const deferred = createDeferred<TEvent>();
         const waiters = waitersMap
             .get(taskId)
-            .getOrElse(() => new mutable.ArrayBuffer<Deferred<TEvent>>());
-        waiters.append(deferred);
+            .getOrElse(() => new mutable.ArrayBuffer<CountedDeferred<TEvent>>());
+        waiters.append({
+            deferred,
+            occurrence,
+        });
         waitersMap.put(taskId, waiters);
         return deferred;
     }
@@ -157,11 +177,24 @@ export class TestTaskEventsBus {
     private resolveWaiters<TEvent extends TestTaskEvent>(
         taskId: number,
         event: TEvent,
-        waitersMap: mutable.HashMap<number, mutable.ArrayBuffer<Deferred<TEvent>>>,
+        waitersMap: mutable.HashMap<number, mutable.ArrayBuffer<CountedDeferred<TEvent>>>,
     ): void {
         waitersMap.get(taskId).foreach((waiters) => {
-            waiters.foreach((waiter) => waiter.resolve(event));
-            waitersMap.remove(taskId);
+            const matched = this.events(taskId)
+                .count((storedEvent) => storedEvent.type === event.type);
+            const pending = new mutable.ArrayBuffer<CountedDeferred<TEvent>>();
+            waiters.foreach((waiter) => {
+                if (waiter.occurrence <= matched) {
+                    waiter.deferred.resolve(event);
+                } else {
+                    pending.append(waiter);
+                }
+            });
+            if (pending.nonEmpty) {
+                waitersMap.put(taskId, pending);
+            } else {
+                waitersMap.remove(taskId);
+            }
         });
     }
 }

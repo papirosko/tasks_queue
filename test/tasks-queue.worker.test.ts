@@ -10,6 +10,7 @@ import {
 import { TasksQueueWorker } from "../src/tasks-queue.worker.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
+import { Clock } from "../src/clock.js";
 
 jest.mock("application-metrics", () => ({
   MetricsService: {
@@ -71,7 +72,12 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(taskWorker.process).toHaveBeenCalled();
-    expect(dao.finish).toHaveBeenCalledWith(1, { foo: "bar" }, undefined);
+    expect(dao.finish).toHaveBeenCalledWith(
+      1,
+      { foo: "bar" },
+      undefined,
+      expect.any(Date),
+    );
     expect(dao.rescheduleIfPeriodic).not.toHaveBeenCalled();
   });
 
@@ -90,6 +96,7 @@ describe("TasksQueueWorker", () => {
       1,
       { foo: "bar" },
       undefined,
+      expect.any(Date),
     );
     expect(dao.finish).not.toHaveBeenCalled();
   });
@@ -111,6 +118,7 @@ describe("TasksQueueWorker", () => {
       "failed",
       { replace: true },
       undefined,
+      expect.any(Date),
     );
   });
 
@@ -127,7 +135,12 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.finish).toHaveBeenCalledWith(1, { foo: "bar" }, { ok: true });
+    expect(dao.finish).toHaveBeenCalledWith(
+      1,
+      { foo: "bar" },
+      { ok: true },
+      expect.any(Date),
+    );
   });
 
   it("passes submitted result into terminal failure flow", async () => {
@@ -151,6 +164,7 @@ describe("TasksQueueWorker", () => {
       "boom",
       { foo: "bar" },
       { partial: true },
+      expect.any(Date),
     );
   });
 
@@ -205,6 +219,7 @@ describe("TasksQueueWorker", () => {
         payload: { child: true },
       },
       { foo: "bar" },
+      expect.any(Date),
     );
     expect(dao.finish).not.toHaveBeenCalled();
   });
@@ -221,7 +236,10 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(1);
+    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(
+      1,
+      expect.any(Date),
+    );
   });
 
   it("wakes blocked parent only on terminal child failure", async () => {
@@ -237,7 +255,10 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(1);
+    expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(
+      1,
+      expect.any(Date),
+    );
   });
 
   it("provides context.ping() that writes heartbeat for the current task", async () => {
@@ -253,17 +274,20 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.ping).toHaveBeenCalledWith(1);
+    expect(dao.ping).toHaveBeenCalledWith(1, expect.any(Date));
   });
 
   it("throttles repeated context.ping() calls in runtime", async () => {
-    const nowSpy = jest.spyOn(Date, "now");
-    nowSpy
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1)
-      .mockReturnValueOnce(1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1);
+    const nowValues = [
+      1_000,
+      1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1,
+      1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1,
+    ];
+    const clock: Clock = {
+      now: jest.fn(() => new Date(nowValues.shift() ?? 0)),
+    };
     const dao = createDao();
-    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
     const taskWorker = new TestWorker();
     (taskWorker.process as any).mockImplementation(
       async (_payload: any, context: TaskContext) => {
@@ -277,6 +301,5 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(dao.ping).toHaveBeenCalledTimes(2);
-    nowSpy.mockRestore();
   });
 });

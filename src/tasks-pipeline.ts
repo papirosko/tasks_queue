@@ -2,6 +2,7 @@ import { option, Option } from "scats";
 import log4js from "log4js";
 import { ScheduledTask } from "./tasks-model.js";
 import { TimeUtils } from "./time-utils.js";
+import { Clock, SystemClock } from "./clock.js";
 
 const defaultLoopInterval = TimeUtils.minute;
 
@@ -58,6 +59,7 @@ export class TasksPipeline {
     private readonly peekNextStartAfter: () => Promise<Option<Date>>,
     private readonly processTask: (t: ScheduledTask) => Promise<void>,
     private readonly loopInterval = defaultLoopInterval,
+    private readonly clock: Clock = new SystemClock(),
   ) {
     this.loopTimer = async () => {
       this.periodicTaskFetcher = null;
@@ -66,7 +68,7 @@ export class TasksPipeline {
         sleepInterval = await this.loop();
       } finally {
         if (!this.periodicTaskFetcher) {
-          this.nextLoopTime = Date.now() + sleepInterval;
+          this.nextLoopTime = this.nowMs() + sleepInterval;
           this.periodicTaskFetcher = setTimeout(
             () => this.loopTimer(),
             Math.min(this.loopInterval, sleepInterval),
@@ -83,8 +85,12 @@ export class TasksPipeline {
     this.stopRequested = false;
     option(this.periodicTaskFetcher).foreach((t) => clearTimeout(t));
 
-    this.nextLoopTime = Date.now() + 1;
+    this.nextLoopTime = this.nowMs() + 1;
     this.periodicTaskFetcher = setTimeout(() => this.loopTimer(), 1);
+  }
+
+  async runOnce(): Promise<void> {
+    await this.loop();
   }
 
   /**
@@ -141,7 +147,7 @@ export class TasksPipeline {
       this.loopRunning = false;
     }
 
-    const nextTriggerTime = Date.now() + sleepInterval;
+    const nextTriggerTime = this.nowMs() + sleepInterval;
     if (this.periodicTaskFetcher && this.nextLoopTime > nextTriggerTime) {
       logger.trace(
         `Resetting loop timer to closer time: from ${new Date(this.nextLoopTime)} to new ${new Date(nextTriggerTime)}`,
@@ -182,7 +188,7 @@ export class TasksPipeline {
         const nextTimeOpt = await this.peekNextStartAfter();
         const delayMs = nextTimeOpt
           .map((startAfter) => {
-            const delay = startAfter.getTime() - Date.now();
+            const delay = startAfter.getTime() - this.nowMs();
             return Math.max(0, delay);
           })
           .getOrElseValue(this.loopInterval); // fallback if no future task
@@ -223,5 +229,9 @@ export class TasksPipeline {
   private taskIsDone() {
     this.tasksInProcess--;
     this.tasksCountListener(this.tasksInProcess);
+  }
+
+  private nowMs(): number {
+    return this.clock.now().getTime();
   }
 }

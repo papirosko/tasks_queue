@@ -14,6 +14,7 @@ import {
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
+import { Clock, SystemClock } from "./clock.js";
 
 const logger = log4js.getLogger("TasksQueueWorker");
 
@@ -29,10 +30,11 @@ class RuntimeTaskContext implements TaskContext {
     readonly taskId: number,
     readonly currentAttempt: number,
     readonly maxAttempts: number,
+    private readonly clock: Clock,
   ) {}
 
   async ping(): Promise<void> {
-    const now = Date.now();
+    const now = this.clock.now().getTime();
     if (
       this.lastPingAt
         .map((lastPingAt) => now - lastPingAt < TASK_HEARTBEAT_THROTTLE_MS)
@@ -40,7 +42,7 @@ class RuntimeTaskContext implements TaskContext {
     ) {
       return;
     }
-    await this.tasksQueueDao.ping(this.taskId);
+    await this.tasksQueueDao.ping(this.taskId, this.clock.now());
     this.lastPingAt = some(now);
   }
 
@@ -85,27 +87,47 @@ class RuntimeTaskContext implements TaskContext {
 export class TasksQueueWorker {
   private readonly workers = new mutable.HashMap<string, TasksWorker>();
   private readonly pipeline: TasksPipeline;
+  private started = false;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
     concurrency = 4,
     loopInterval: number = TimeUtils.minute,
+    private readonly clock: Clock = new SystemClock(),
   ) {
     this.pipeline = new TasksPipeline(
       concurrency,
-      () => this.tasksQueueDao.nextPending(this.workers.keySet),
-      () => this.tasksQueueDao.peekNextStartAfter(this.workers.keySet),
+      () => this.tasksQueueDao.nextPending(this.workers.keySet, this.clock.now()),
+      () =>
+        this.tasksQueueDao.peekNextStartAfter(
+          this.workers.keySet,
+          this.clock.now(),
+        ),
       (t) => this.processNextTask(t),
       loopInterval,
+      this.clock,
     );
   }
 
   start(): void {
+    this.started = true;
     this.pipeline.start();
   }
 
-  stop() {
-    return this.pipeline.stop();
+  async stop() {
+    this.started = false;
+    return await this.pipeline.stop();
+  }
+
+  async runOnce(): Promise<void> {
+    const task = await this.tasksQueueDao.nextPending(
+      this.workers.keySet,
+      this.clock.now(),
+    );
+    await task.mapPromise(async (scheduledTask) => {
+      await this.processNextTask(scheduledTask);
+      return scheduledTask;
+    });
   }
 
   registerWorker(queueName: string, worker: TasksWorker): void {
@@ -116,7 +138,7 @@ export class TasksQueueWorker {
   }
 
   tasksScheduled(queueName: string): void {
-    if (this.workers.containsKey(queueName)) {
+    if (this.started && this.workers.containsKey(queueName)) {
       // Wake up the loop to check for pending tasks
       this.pipeline.triggerLoop();
     }
@@ -128,8 +150,10 @@ export class TasksQueueWorker {
    * @param childTaskId child task id
    */
   private async wakeBlockedParent(childTaskId: number): Promise<void> {
-    const parent =
-      await this.tasksQueueDao.wakeParentOnChildTerminal(childTaskId);
+    const parent = await this.tasksQueueDao.wakeParentOnChildTerminal(
+      childTaskId,
+      this.clock.now(),
+    );
     parent.foreach((p) => this.tasksScheduled(p.queue));
   }
 
@@ -155,6 +179,7 @@ export class TasksQueueWorker {
             task.id,
             spawnedChild,
             context.payloadToPersist(task.payload),
+            this.clock.now(),
           );
         childTaskId.foreach(() => this.tasksScheduled(spawnedChild.queue));
       },
@@ -165,6 +190,7 @@ export class TasksQueueWorker {
               task.id,
               context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
+              this.clock.now(),
             );
           },
           none: async () => {
@@ -172,6 +198,7 @@ export class TasksQueueWorker {
               task.id,
               context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
+              this.clock.now(),
             );
             await this.wakeBlockedParent(task.id);
           },
@@ -189,6 +216,7 @@ export class TasksQueueWorker {
           task.id,
           task.currentAttempt,
           task.maxAttempts,
+          this.clock,
         );
         try {
           Try(() => worker.starting(task.id, task.payload)).tapFailure((e) =>
@@ -214,6 +242,7 @@ export class TasksQueueWorker {
             (e as any)["message"] || e,
             e instanceof TaskFailed ? e.payload : task.payload,
             context.submittedResult.orUndefined,
+            this.clock.now(),
           );
           if (finalStatus === TaskStatus.error) {
             await this.wakeBlockedParent(task.id);

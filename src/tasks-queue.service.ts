@@ -11,6 +11,7 @@ import {
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
+import { Clock, SystemClock } from "./clock.js";
 
 const logger = log4js.getLogger("TasksQueueService");
 
@@ -38,15 +39,21 @@ export class TasksQueueService {
     private readonly tasksQueueDao: TasksQueueDao,
     manageTasksQueueService: ManageTasksQueueService,
     config: TasksQueueConfig,
+    private readonly clock: Clock = new SystemClock(),
   ) {
     this.worker = new TasksQueueWorker(
       this.tasksQueueDao,
       config.concurrency,
       config.loopInterval,
+      this.clock,
     );
     if (config.runAuxiliaryWorker) {
       this.auxiliaryWorker = some(
-        new TasksAuxiliaryWorker(tasksQueueDao, manageTasksQueueService),
+        new TasksAuxiliaryWorker(
+          tasksQueueDao,
+          manageTasksQueueService,
+          this.clock,
+        ),
       );
     } else {
       this.auxiliaryWorker = none;
@@ -63,7 +70,7 @@ export class TasksQueueService {
    * @returns created task id if insert succeeded, otherwise `none`
    */
   async schedule(task: ScheduleTaskDetails) {
-    const taskId = await this.tasksQueueDao.schedule(task);
+    const taskId = await this.tasksQueueDao.schedule(task, this.clock.now());
     this.taskScheduled(task.queue);
     return taskId;
   }
@@ -81,6 +88,7 @@ export class TasksQueueService {
     const taskId = await this.tasksQueueDao.schedulePeriodic(
       task,
       TaskPeriodType.fixed_rate,
+      this.clock.now(),
     );
     this.taskScheduled(task.queue);
     return taskId;
@@ -99,6 +107,7 @@ export class TasksQueueService {
     const taskId = await this.tasksQueueDao.schedulePeriodic(
       task,
       TaskPeriodType.fixed_delay,
+      this.clock.now(),
     );
     this.taskScheduled(task.queue);
     return taskId;
@@ -121,6 +130,7 @@ export class TasksQueueService {
     const taskId = await this.tasksQueueDao.schedulePeriodic(
       task,
       TaskPeriodType.cron,
+      this.clock.now(),
     );
     this.taskScheduled(task.queue);
     return taskId;
@@ -143,6 +153,10 @@ export class TasksQueueService {
    */
   registerWorker(queueName: string, worker: TasksWorker) {
     this.worker.registerWorker(queueName, worker);
+  }
+
+  async runOnce(): Promise<void> {
+    await this.worker.runOnce();
   }
 
   /**

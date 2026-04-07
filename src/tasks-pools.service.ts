@@ -12,6 +12,7 @@ import {
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
+import { Clock, SystemClock } from "./clock.js";
 
 export const DEFAULT_POOL = "default";
 const logger = log4js.getLogger("TasksPoolsService");
@@ -38,6 +39,7 @@ export class TasksPoolsService {
         loopInterval: 60000,
       },
     ],
+    private readonly clock: Clock = new SystemClock(),
   ) {
     const poolsCollection = Collection.from(pools);
     const poolNames = poolsCollection.map((p) => p.name).toSet;
@@ -50,10 +52,10 @@ export class TasksPoolsService {
         concurrency: p.concurrency,
         runAuxiliaryWorker: false,
         loopInterval: p.loopInterval,
-      }),
+      }, this.clock),
     ]);
     this.auxiliaryWorker = runAuxiliaryWorker
-      ? some(new TasksAuxiliaryWorker(dao, manageTasksQueueService))
+      ? some(new TasksAuxiliaryWorker(dao, manageTasksQueueService, this.clock))
       : none;
   }
 
@@ -137,7 +139,7 @@ export class TasksPoolsService {
    * @returns created task id if insert succeeded, otherwise `none`
    */
   async schedule(task: ScheduleTaskDetails) {
-    const taskId = await this.dao.schedule(task);
+    const taskId = await this.dao.schedule(task, this.clock.now());
     this.taskScheduled(task.queue, taskId);
     return taskId;
   }
@@ -152,6 +154,7 @@ export class TasksPoolsService {
     const taskId = await this.dao.schedulePeriodic(
       task,
       TaskPeriodType.fixed_rate,
+      this.clock.now(),
     );
     this.taskScheduled(task.queue, taskId);
     return taskId;
@@ -167,6 +170,7 @@ export class TasksPoolsService {
     const taskId = await this.dao.schedulePeriodic(
       task,
       TaskPeriodType.fixed_delay,
+      this.clock.now(),
     );
     this.taskScheduled(task.queue, taskId);
     return taskId;
@@ -186,7 +190,11 @@ export class TasksPoolsService {
    * @returns created task id if insert succeeded, otherwise `none`
    */
   async scheduleAtCron(task: ScheduleCronTaskDetails) {
-    const taskId = await this.dao.schedulePeriodic(task, TaskPeriodType.cron);
+    const taskId = await this.dao.schedulePeriodic(
+      task,
+      TaskPeriodType.cron,
+      this.clock.now(),
+    );
     this.taskScheduled(task.queue, taskId);
     return taskId;
   }

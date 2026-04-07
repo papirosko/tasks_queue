@@ -1,10 +1,10 @@
-import { StartedPostgreSqlContainer, PostgreSqlContainer } from "@testcontainers/postgresql";
 import fs from "fs/promises";
 import path from "path";
 import pg from "pg";
 import { ManageTasksQueueService } from "../../src/manage-tasks-queue.service.js";
 import { TasksQueueDao } from "../../src/tasks-queue.dao.js";
 import { TasksQueueService } from "../../src/tasks-queue.service.js";
+import { Clock, SystemClock } from "../../src/clock.js";
 
 /**
  * Minimal integration-test harness for repository-level tests against real Postgres.
@@ -18,23 +18,37 @@ export abstract class BaseIntegrationTest {
   protected manage!: ManageTasksQueueService;
   protected service!: TasksQueueService;
   private queueServiceStarted = false;
+  protected readonly clock: Clock;
 
-  private container: StartedPostgreSqlContainer | undefined;
+  constructor(clock: Clock = new SystemClock()) {
+    this.clock = clock;
+  }
 
   async start(): Promise<void> {
-    this.container = await new PostgreSqlContainer("postgres:16-alpine")
-      .withDatabase("testdb")
-      .withUsername("test")
-      .withPassword("test")
-      .start();
+    const statePath = path.resolve(
+      process.cwd(),
+      "test",
+      "integration",
+      "global-setup.json",
+    );
+    const state = JSON.parse(await fs.readFile(statePath, "utf8")) as {
+      host: string;
+      port: number;
+      database: string;
+      user: string;
+      password: string;
+    };
 
     this.pool = new pg.Pool({
-      host: this.container.getHost(),
-      port: this.container.getPort(),
-      database: this.container.getDatabase(),
-      user: this.container.getUsername(),
-      password: this.container.getPassword(),
+      host: state.host,
+      port: state.port,
+      database: state.database,
+      user: state.user,
+      password: state.password,
     });
+
+    await this.pool.query(`DROP SCHEMA IF EXISTS "public" CASCADE`);
+    await this.pool.query(`CREATE SCHEMA "public"`);
 
     const migrationPath = path.resolve(process.cwd(), "migration.sql");
     const migration = await fs.readFile(migrationPath, "utf8");
@@ -46,7 +60,7 @@ export abstract class BaseIntegrationTest {
       concurrency: 1,
       runAuxiliaryWorker: false,
       loopInterval: 1000,
-    });
+    }, this.clock);
   }
 
   get db(): pg.Pool {
@@ -80,7 +94,5 @@ export abstract class BaseIntegrationTest {
       this.queueServiceStarted = false;
     }
     await this.pool?.end();
-    await this.container?.stop();
-    this.container = undefined;
   }
 }

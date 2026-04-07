@@ -127,6 +127,7 @@ describe("TasksPoolsService", () => {
     expect(dao.schedulePeriodic).toHaveBeenCalledWith(
       expect.objectContaining({ name: "cron-task" }),
       TaskPeriodType.cron,
+      expect.any(Date),
     );
   });
 });

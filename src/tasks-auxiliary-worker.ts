@@ -5,6 +5,7 @@ import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { Collection, HashMap, Nil, option } from "scats";
 import { TasksCount } from "./manage.model.js";
 import { MetricsService } from "application-metrics";
+import { Clock, SystemClock } from "./clock.js";
 
 const logger = log4js.getLogger("TasksAuxiliaryWorker");
 
@@ -16,6 +17,7 @@ export class TasksAuxiliaryWorker {
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
     private readonly manageTasksQueueService: ManageTasksQueueService,
+    private readonly clock: Clock = new SystemClock(),
   ) {}
 
   start() {
@@ -55,7 +57,7 @@ export class TasksAuxiliaryWorker {
   private runAuxiliaryJobs() {
     try {
       this.tasksQueueDao
-        .failStalled()
+        .failStalled(this.clock.now())
         .then((res) => {
           if (res.nonEmpty) {
             logger.info(`Processed stalled tasks: ${res.mkString(", ")}`);
@@ -67,7 +69,7 @@ export class TasksAuxiliaryWorker {
       this.tasksQueueDao.resetFailed().catch((e) => {
         logger.warn("Failed to reset failed tasks", e);
       });
-      this.tasksQueueDao.clearFinished().catch((e) => {
+      this.tasksQueueDao.clearFinished(undefined, this.clock.now()).catch((e) => {
         logger.warn("Failed to clear finished tasks", e);
       });
     } catch (e) {

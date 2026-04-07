@@ -172,7 +172,7 @@ export class PeriodicScheduleUtils {
     repeatInterval: number,
   ): Date {
     const elapsed = now.getTime() - initialStart.getTime();
-    const periods = Math.ceil(elapsed / repeatInterval);
+    const periods = Math.max(1, Math.floor(elapsed / repeatInterval) + 1);
     return new Date(initialStart.getTime() + periods * repeatInterval);
   }
 }

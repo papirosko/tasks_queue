@@ -14,6 +14,8 @@ export default {
   },
   extensionsToTreatAsEsm: [".ts"],
   testMatch: ["**/test/integration/**/*.test.ts"],
+  globalSetup: "./test/integration/global-setup.ts",
+  globalTeardown: "./test/integration/global-teardown.ts",
   collectCoverage: false,
   testTimeout: 120000,
 };

@@ -53,7 +53,7 @@ export class ControlledTestWorker extends TasksWorker {
     }
   }
 
-  override async completed(taskId: number): Promise<void> {
+  override async completed(taskId: number, _payload: any): Promise<void> {
     this.eventsBus.emitCompleted(
       taskId,
       this.submittedResults.get(taskId).orUndefined,
@@ -87,8 +87,21 @@ export class ControlledTestWorker extends TasksWorker {
     });
   }
 
+  failWithResult(taskId: number, error: Error, result: object): void {
+    this.execution(taskId).foreach((execution) => {
+      execution.context.submitResult(result);
+      this.submittedResults.put(taskId, result);
+      execution.deferred.reject(error);
+    });
+  }
+
   isActive(taskId: number): boolean {
     return this.execution(taskId).isDefined;
+  }
+
+  reset(): void {
+    this.activeExecutions.clear();
+    this.submittedResults.clear();
   }
 
   private execution(taskId: number): Option<ControlledExecution> {
