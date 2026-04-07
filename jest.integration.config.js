@@ -16,6 +16,12 @@ export default {
   testMatch: ["**/test/integration/**/*.test.ts"],
   globalSetup: "./test/integration/global-setup.ts",
   globalTeardown: "./test/integration/global-teardown.ts",
-  collectCoverage: false,
+  collectCoverage: true,
+  coverageDirectory: "coverage/integration",
+  coverageReporters: ["text", "lcov"],
+  collectCoverageFrom: [
+    "src/**/*.ts",
+    "!src/index.ts",
+  ],
   testTimeout: 120000,
 };
