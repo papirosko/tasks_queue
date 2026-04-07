@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.5
+
+### Fixed
+- Fixed cross-pool parent-child notifications so child tasks scheduled into another pool start immediately instead of waiting for that pool's next polling interval.
+- Fixed blocked parent wake-up notifications so parents resume immediately even when the completed child ran in a different pool.
+
+### Added
+- Added unit coverage for cross-pool queue notification dispatch in `TasksQueueWorker`.
+- Added an integration test that reproduces cross-pool parent-child execution with `loopInterval = 1 minute` and verifies prompt child start and parent wake-up.
+
 ## 1.7.4
 
 ### Added

@@ -239,6 +239,32 @@ describe("TasksQueueWorker", () => {
     expect(dao.finish).not.toHaveBeenCalled();
   });
 
+  it("notifies target queue through injected notifier when spawning a child", async () => {
+    const dao = createDao({
+      blockParentAndScheduleChild: jest.fn(async () => some(2)),
+    });
+    const queueNotifier = jest.fn();
+    const worker = new TasksQueueWorker(
+      dao as any,
+      1,
+      10,
+      undefined,
+      queueNotifier,
+    );
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        context.spawnChild({ queue: "child-q", payload: { child: true } });
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+    const task = createTask();
+
+    await (worker as any).processNextTask(task);
+
+    expect(queueNotifier).toHaveBeenCalledWith("child-q");
+  });
+
   it("wakes blocked parent after child finishes successfully", async () => {
     const dao = createDao({
       wakeParentOnChildTerminal: jest.fn(async () =>
@@ -256,6 +282,28 @@ describe("TasksQueueWorker", () => {
       1,
       expect.any(Date),
     );
+  });
+
+  it("notifies parent queue through injected notifier after child completion", async () => {
+    const dao = createDao({
+      wakeParentOnChildTerminal: jest.fn(async () =>
+        some({ id: 99, queue: "parent-q" }),
+      ),
+    });
+    const queueNotifier = jest.fn();
+    const worker = new TasksQueueWorker(
+      dao as any,
+      1,
+      10,
+      undefined,
+      queueNotifier,
+    );
+    worker.registerWorker("q", new TestWorker());
+    const task = createTask();
+
+    await (worker as any).processNextTask(task);
+
+    expect(queueNotifier).toHaveBeenCalledWith("parent-q");
   });
 
   it("wakes blocked parent only on terminal child failure", async () => {

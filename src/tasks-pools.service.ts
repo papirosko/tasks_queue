@@ -61,6 +61,7 @@ export class TasksPoolsService {
           concurrency: p.concurrency,
           runAuxiliaryWorker: false,
           loopInterval: p.loopInterval,
+          queueNotifier: (queueName: string) => this.notifyQueue(queueName),
         },
         this.clock,
       ),
@@ -231,6 +232,10 @@ export class TasksPoolsService {
    * @param taskId created task id if available
    */
   private taskScheduled(queue: string, taskId: Option<number>): void {
+    this.notifyQueue(queue, taskId);
+  }
+
+  private notifyQueue(queue: string, taskId: Option<number> = none): void {
     this.queuesPool.get(queue).match({
       some: (poolName) => {
         this.pools.get(poolName).foreach((pool) => {

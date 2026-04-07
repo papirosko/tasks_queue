@@ -29,6 +29,11 @@ export interface TasksQueueConfig {
    * Fallback polling interval in milliseconds for the worker pipeline.
    */
   loopInterval: number;
+  /**
+   * Optional queue-level notifier used when a running task schedules work for a
+   * queue that may belong to another pool.
+   */
+  queueNotifier?: (queueName: string) => void;
 }
 
 /**
@@ -56,6 +61,7 @@ export class TasksQueueService {
       config.concurrency,
       config.loopInterval,
       this.clock,
+      config.queueNotifier,
     );
     if (config.runAuxiliaryWorker) {
       this.auxiliaryWorker = some(

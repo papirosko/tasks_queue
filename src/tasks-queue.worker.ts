@@ -127,13 +127,16 @@ export class TasksQueueWorker {
   private readonly workers = new mutable.HashMap<string, TasksWorker>();
   private readonly pipeline: TasksPipeline;
   private started = false;
+  private readonly queueNotifier: (queueName: string) => void;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
     concurrency = 4,
     loopInterval: number = TimeUtils.minute,
     private readonly clock: Clock = new SystemClock(),
+    queueNotifier?: (queueName: string) => void,
   ) {
+    this.queueNotifier = queueNotifier ?? ((queueName) => this.tasksScheduled(queueName));
     this.pipeline = new TasksPipeline(
       concurrency,
       () =>
@@ -194,7 +197,7 @@ export class TasksQueueWorker {
       childTaskId,
       this.clock.now(),
     );
-    parent.foreach((p) => this.tasksScheduled(p.queue));
+    parent.foreach((p) => this.queueNotifier(p.queue));
   }
 
   /**
@@ -223,7 +226,7 @@ export class TasksQueueWorker {
             task.started,
             this.clock.now(),
           );
-        childTaskId.foreach(() => this.tasksScheduled(spawnedChild.queue));
+        childTaskId.foreach(() => this.queueNotifier(spawnedChild.queue));
         return childTaskId.isDefined;
       },
       none: async () => {
