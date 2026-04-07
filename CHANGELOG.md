@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.7.4
+
+### Added
+- Added a real PostgreSQL integration test harness based on `testcontainers`.
+- Added integration coverage for task execution lifecycle, parent-child workflows, stalled-task handling, periodic scheduling, lifecycle callbacks, management APIs, DAO cleanup flows, and ownership race scenarios.
+- Added broader public API JSDoc across queue services, models, scheduling APIs, and NestJS integration types.
+
+### Changed
+- Hardened task ownership checks so stale attempts cannot heartbeat, finish, fail, block, or wake tasks after ownership has moved to a newer attempt.
+- Refined `SequentialTask` payload handling and expanded workflow-specific coverage around parent-child continuations.
+- Enabled coverage reporting for the integration suite and aligned the repository with the new ESLint ruleset.
+- Expanded README and detailed documentation for heartbeat behavior, multi-step workflows, and operational usage.
+
+## 1.7.3
+
+### Fixed
+- Fixed terminal failure persistence so submitted `result` is retained for terminal task failures instead of being cleared incorrectly.
+
+## 1.7.2
+
+### Changed
+- Improved `MultiStepPayload` ergonomics for parent-child workflows.
+- Refined `SequentialTask` continuation behavior and expanded related workflow coverage and documentation.
+
 ## 1.7.1
 
 ### Changed
