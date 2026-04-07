@@ -206,7 +206,7 @@ export abstract class MultiStepTask<
       await this.childFailed(nextPayload, childTask, context, activeChild);
     } else {
       throw new Error(
-        `Active child task ${childTask.id} is not terminal: ${childTask.status}`,
+        `Inconsistent workflow state: child task with id=${childTask.id} is not terminal (status=${childTask.status})`,
       );
     }
   }
@@ -268,7 +268,7 @@ export abstract class MultiStepTask<
           },
           none: async () => {
             throw new Error(
-              `Active child task ${activeChild.taskId} not found`,
+              `Child task with id=${activeChild.taskId} not found`,
             );
           },
         });

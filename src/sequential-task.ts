@@ -161,6 +161,45 @@ export abstract class SequentialTask<
   ): Promise<void>;
 
   /**
+   * Advance workflow state to the next configured step and continue processing.
+   *
+   * This helper is shared by both successful child completion and allowed child failure.
+   */
+  private async continueToNextStep(
+    payload: MultiStepPayload<TUserPayload>,
+    context: TaskContext,
+  ): Promise<void> {
+    await this.currentStep(payload).match({
+      some: async (currentStep) => {
+        await this.nextStep(currentStep).match({
+          some: async (step) => {
+            const nextPayload = payload.copy({
+              workflowPayload: {
+                ...payload.workflowPayload,
+                step,
+              },
+            });
+            context.setPayload(nextPayload.toJson);
+            await this.processStep(
+              step,
+              nextPayload.userPayload,
+              this.processStepContext(nextPayload, context, step),
+            );
+          },
+          none: async () => {
+            // no next step configured
+          },
+        });
+      },
+      none: async () => {
+        throw new Error(
+          "Sequential task requires at least one configured step",
+        );
+      },
+    });
+  }
+
+  /**
    * Adapt runtime context for sequential steps so step handlers work with user payload only.
    *
    * In `SequentialTask`, `context.setPayload(...)` inside `processStep(...)` accepts only the next
@@ -249,34 +288,26 @@ export abstract class SequentialTask<
     context: TaskContext,
     _activeChild: ActiveChildState,
   ): Promise<void> {
-    await this.currentStep(payload).match({
-      some: async (currentStep) => {
-        await this.nextStep(currentStep).match({
-          some: async (step) => {
-            const nextPayload = payload.copy({
-              workflowPayload: {
-                ...payload.workflowPayload,
-                step,
-              },
-            });
-            context.setPayload(nextPayload.toJson);
-            await this.processStep(
-              step,
-              nextPayload.userPayload,
-              this.processStepContext(nextPayload, context, step),
-            );
-          },
-          none: async () => {
-            // no next step configured
-          },
-        });
-      },
-      none: async () => {
-        throw new Error(
-          "Sequential task requires at least one configured step",
-        );
-      },
-    });
+    await this.continueToNextStep(payload, context);
+  }
+
+  /**
+   * Continue to the next configured step when the failed child was marked with `allowFailure=true`.
+   *
+   * When `allowFailure` is not set, SequentialTask keeps the default MultiStepTask behavior and
+   * fails the parent task.
+   */
+  protected override async childFailed(
+    payload: MultiStepPayload<TUserPayload>,
+    childTask: { id: number; error?: string },
+    context: TaskContext,
+    activeChild: ActiveChildState,
+  ): Promise<void> {
+    if (activeChild.allowFailure) {
+      await this.continueToNextStep(payload, context);
+      return;
+    }
+    await super.childFailed(payload, childTask, context, activeChild);
   }
 
   /**

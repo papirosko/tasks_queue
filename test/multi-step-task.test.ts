@@ -164,6 +164,57 @@ describe("MultiStepTask", () => {
     ).rejects.toThrow("Child task 42 failed: boom");
   });
 
+  it("fails with explicit message when active child task is missing", async () => {
+    const task = new TestMultiStepTask();
+    const context = {
+      ...createContext(),
+      findTask: jest.fn(async () => none),
+    };
+
+    await expect(
+      task.process(
+        {
+          activeChild: {
+            taskId: 42,
+          },
+          userPayload: { step: "waiting" },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Child task with id=42 not found");
+  });
+
+  it("fails with explicit inconsistency error when active child is not terminal", async () => {
+    const task = new TestMultiStepTask();
+    const context = {
+      ...createContext(),
+      findTask: jest.fn(async () =>
+        some({
+          id: 42,
+          parentId: 1,
+          status: TaskStatus.pending,
+          payload: undefined,
+          result: none,
+          error: undefined,
+        } as TaskStateSnapshot),
+      ),
+    };
+
+    await expect(
+      task.process(
+        {
+          activeChild: {
+            taskId: 42,
+          },
+          userPayload: { step: "waiting" },
+        },
+        context,
+      ),
+    ).rejects.toThrow(
+      "Inconsistent workflow state: child task with id=42 is not terminal (status=pending)",
+    );
+  });
+
   it("continues workflow when child failure is allowed", async () => {
     const task = new AllowFailureMultiStepTask();
     const context = {

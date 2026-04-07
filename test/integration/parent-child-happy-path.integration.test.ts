@@ -1,112 +1,26 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
-import { Collection } from "scats";
 import { MultiStepPayload } from "../../src/multi-step-payload.js";
-import { SequentialTask } from "../../src/sequential-task.js";
-import { TaskContext, TaskStatus } from "../../src/tasks-model.js";
-import { TasksWorker } from "../../src/tasks-worker.js";
+import { TaskStatus } from "../../src/tasks-model.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
+import {
+  ReadVideoMetadataWorker,
+  SequentialVideoWorker,
+  UploadVideoWorker,
+  VIDEO_METADATA_QUEUE,
+  VIDEO_PARENT_QUEUE,
+  VIDEO_UPLOAD_QUEUE,
+} from "./support/video-test-workers.js";
 
 class QueueIntegrationTest extends BaseIntegrationTest {}
-
-type VideoWorkflowPayload = {
-  videoId: string;
-  uploadResult?: {
-    videoId: string;
-    path: string;
-  };
-  metadataResult?: {
-    path: string;
-    durationSec: number;
-    width: number;
-    height: number;
-  };
-};
-
-class SequentialVideoWorker extends SequentialTask<
-  "upload" | "metadata" | "aggregate",
-  VideoWorkflowPayload
-> {
-  constructor() {
-    super(Collection.of("upload", "metadata", "aggregate"));
-  }
-
-  protected override async processStep(
-    step: "upload" | "metadata" | "aggregate",
-    payload: VideoWorkflowPayload,
-    context: TaskContext,
-  ): Promise<void> {
-    switch (step) {
-      case "upload":
-        context.spawnChild({
-          queue: "video-upload",
-          payload: {
-            videoId: payload.videoId,
-          },
-        });
-        return;
-      case "metadata": {
-        const uploadResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as VideoWorkflowPayload["uploadResult"];
-        context.setPayload({
-          ...payload,
-          uploadResult,
-        });
-        context.spawnChild({
-          queue: "video-metadata",
-          payload: {
-            path: String(uploadResult?.path ?? ""),
-          },
-        });
-        return;
-      }
-      case "aggregate": {
-        const metadataResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as VideoWorkflowPayload["metadataResult"];
-        context.setPayload({
-          ...payload,
-          metadataResult,
-        });
-        context.submitResult({
-          videoId: payload.videoId,
-          upload: payload.uploadResult,
-          metadata: metadataResult,
-        });
-        return;
-      }
-    }
-  }
-}
-
-class UploadVideoWorker extends TasksWorker {
-  override async process(payload: any, context: TaskContext): Promise<void> {
-    context.submitResult({
-      videoId: payload.videoId,
-      path: `/videos/${payload.videoId}.mp4`,
-    });
-  }
-}
-
-class ReadVideoMetadataWorker extends TasksWorker {
-  override async process(payload: any, context: TaskContext): Promise<void> {
-    context.submitResult({
-      path: payload.path,
-      durationSec: 120,
-      width: 1920,
-      height: 1080,
-    });
-  }
-}
 
 describe("Parent-child happy path integration", () => {
   const test = new QueueIntegrationTest();
 
   beforeAll(async () => {
     await test.start();
-    test.tasksQueueService.registerWorker("video-parent", new SequentialVideoWorker());
-    test.tasksQueueService.registerWorker("video-upload", new UploadVideoWorker());
-    test.tasksQueueService.registerWorker("video-metadata", new ReadVideoMetadataWorker());
+    test.tasksQueueService.registerWorker(VIDEO_PARENT_QUEUE, new SequentialVideoWorker());
+    test.tasksQueueService.registerWorker(VIDEO_UPLOAD_QUEUE, new UploadVideoWorker());
+    test.tasksQueueService.registerWorker(VIDEO_METADATA_QUEUE, new ReadVideoMetadataWorker());
   });
 
   beforeEach(async () => {
@@ -119,7 +33,7 @@ describe("Parent-child happy path integration", () => {
 
   it("passes results across two child tasks and aggregates the final parent result", async () => {
     const parentTaskId = await test.tasksQueueService.schedule({
-      queue: "video-parent",
+      queue: VIDEO_PARENT_QUEUE,
       payload: MultiStepPayload.forUserPayload({ videoId: "vid-42" }).toJson,
     });
 

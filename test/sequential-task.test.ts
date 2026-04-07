@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { Collection, none, some } from "scats";
+import { ActiveChildState } from "../src/active-child-state.js";
 import { MultiStepPayload } from "../src/multi-step-payload.js";
 import { SequentialTask } from "../src/sequential-task.js";
 import { TaskContext, TaskStateSnapshot } from "../src/tasks-model.js";
@@ -234,6 +235,42 @@ describe("SequentialTask", () => {
 
     expect(context.setPayload).not.toHaveBeenCalled();
     expect(processStepSpy).not.toHaveBeenCalled();
+  });
+
+  it("continues to the next step when child failure is allowed", async () => {
+    const task = new TestSequentialTask();
+    const context = createContext();
+    const processStepSpy = jest.spyOn(task as any, "processStep");
+    const payload = new MultiStepPayload(
+      none,
+      { step: "scan" },
+      { videoId: 42 },
+    );
+
+    await (task as any).childFailed(
+      payload,
+      {
+        id: 10,
+        error: "boom",
+      },
+      context,
+      new ActiveChildState(10, true),
+    );
+
+    expect(context.setPayload).toHaveBeenCalledWith({
+      workflowPayload: { step: "encode" },
+      userPayload: { videoId: 42 },
+    });
+    expect(processStepSpy).toHaveBeenCalledWith(
+      "encode",
+      { videoId: 42 },
+      expect.objectContaining({
+        taskId: context.taskId,
+        currentAttempt: context.currentAttempt,
+        maxAttempts: context.maxAttempts,
+        resolvedChildTask: context.resolvedChildTask,
+      }),
+    );
   });
 
   it("exposes resolvedChildTask to the next sequential step after child completion", async () => {
