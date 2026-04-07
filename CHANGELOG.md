@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.6
+
+### Fixed
+- Fixed `SequentialTask` auto-continue semantics so steps that run after an intermediate local step do not retain stale `resolvedChildTask` from an earlier child completion.
+- Fixed `TasksPoolsService.stop()` to clear its shutdown timeout timer after successful stop, preventing Jest open-handle warnings in test runs.
+
+### Added
+- Added unit coverage that verifies auto-continued sequential steps receive updated payload while stale child references are cleared.
+- Added unit coverage for shutdown timeout cleanup in `TasksPoolsService.stop()`.
+
 ## 1.7.5
 
 ### Fixed

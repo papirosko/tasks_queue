@@ -85,6 +85,8 @@ class AutoContinuingSequentialTask extends SequentialTask<
   VideoPayload & { encodedPath?: string }
 > {
   readonly visitedSteps = new mutable.ArrayBuffer<string>();
+  readonly metadataResolvedChildStatuses = new mutable.ArrayBuffer<string>();
+  readonly metadataSeenEncodedPaths = new mutable.ArrayBuffer<string>();
 
   constructor() {
     super(Collection.of("scan", "encode", "metadata"));
@@ -110,6 +112,12 @@ class AutoContinuingSequentialTask extends SequentialTask<
         });
         return;
       case "metadata":
+        context.resolvedChildTask.foreach((childTask) => {
+          this.metadataResolvedChildStatuses.append(childTask.status);
+        });
+        if (payload.encodedPath !== undefined) {
+          this.metadataSeenEncodedPaths.append(payload.encodedPath);
+        }
         context.submitResult({
           videoId: payload.videoId,
           encodedPath: payload.encodedPath,
@@ -267,6 +275,8 @@ describe("SequentialTask", () => {
     );
 
     expect(task.visitedSteps.toArray).toEqual(["encode", "metadata"]);
+    expect(task.metadataResolvedChildStatuses.toArray).toEqual([]);
+    expect(task.metadataSeenEncodedPaths.toArray).toEqual(["/videos/42.mp4"]);
     expect(context.setPayload).toHaveBeenNthCalledWith(1, {
       workflowPayload: { step: "encode" },
       userPayload: { videoId: 42 },

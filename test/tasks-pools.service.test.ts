@@ -145,9 +145,7 @@ describe("TasksPoolsService", () => {
 
     const pools = (service as any).pools;
     const defaultPool = pools.get(DEFAULT_POOL).getOrElseValue(null);
-    jest
-      .spyOn(defaultPool, "stop")
-      .mockImplementation(async () => undefined);
+    jest.spyOn(defaultPool, "stop").mockImplementation(async () => undefined);
 
     await service.stop(30000);
 

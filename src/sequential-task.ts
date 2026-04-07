@@ -1,4 +1,4 @@
-import { Collection, option } from "scats";
+import { Collection, none, option } from "scats";
 import { ActiveChildState } from "./active-child-state.js";
 import { MultiStepPayload } from "./multi-step-payload.js";
 import { MultiStepTask } from "./multi-step-task.js";
@@ -241,6 +241,20 @@ export abstract class SequentialTask<
     };
   }
 
+  private clearedResolvedChildContext(context: TaskContext): TaskContext {
+    return {
+      taskId: context.taskId,
+      currentAttempt: context.currentAttempt,
+      maxAttempts: context.maxAttempts,
+      resolvedChildTask: none,
+      ping: () => context.ping(),
+      setPayload: (payload: object) => context.setPayload(payload),
+      submitResult: (result: object) => context.submitResult(result),
+      findTask: (taskId: number) => context.findTask(taskId),
+      spawnChild: (task) => context.spawnChild(task),
+    };
+  }
+
   private async runStep(
     payload: MultiStepPayload<TUserPayload>,
     step: TStep,
@@ -261,7 +275,10 @@ export abstract class SequentialTask<
       }),
     );
     if (!childSpawned) {
-      await this.continueToNextStep(effectivePayload, context);
+      await this.continueToNextStep(
+        effectivePayload,
+        this.clearedResolvedChildContext(context),
+      );
     }
   }
 
