@@ -21,42 +21,20 @@ export class TasksAuxiliaryWorker {
   ) {}
 
   start() {
-    const runWorker = () => {
-      this.runAuxiliaryJobs();
-    };
     this.workerTimer = setInterval(() => {
-      try {
-        runWorker();
-      } catch (e) {
-        logger.warn("Failed to process stalled tasks", e);
-      }
+      void this.runMaintenanceOnce();
     }, TimeUtils.second * 30);
-    try {
-      runWorker();
-    } catch (e) {
-      logger.warn("Failed to process stalled tasks", e);
-    }
+    void this.runMaintenanceOnce();
 
-    const runMetrics = () => {
-      this.fetchMetrics();
-    };
     this.metricsTimer = setInterval(() => {
-      try {
-        runMetrics();
-      } catch (e) {
-        logger.warn("Failed to sync metrics", e);
-      }
+      void this.syncMetricsOnce();
     }, TimeUtils.minute * 2);
-    try {
-      runMetrics();
-    } catch (e) {
-      logger.warn("Failed to sync metrics", e);
-    }
+    void this.syncMetricsOnce();
   }
 
-  private runAuxiliaryJobs() {
+  async runMaintenanceOnce(): Promise<void> {
     try {
-      this.tasksQueueDao
+      const failStalledPromise = this.tasksQueueDao
         .failStalled(this.clock.now())
         .then((res) => {
           if (res.nonEmpty) {
@@ -66,46 +44,51 @@ export class TasksAuxiliaryWorker {
         .catch((e) => {
           logger.warn("Failed to process stalled tasks", e);
         });
-      this.tasksQueueDao.resetFailed().catch((e) => {
+      const resetFailedPromise = this.tasksQueueDao.resetFailed().catch((e) => {
         logger.warn("Failed to reset failed tasks", e);
       });
-      this.tasksQueueDao.clearFinished(undefined, this.clock.now()).catch((e) => {
-        logger.warn("Failed to clear finished tasks", e);
-      });
+      const clearFinishedPromise = this.tasksQueueDao
+        .clearFinished(undefined, this.clock.now())
+        .catch((e) => {
+          logger.warn("Failed to clear finished tasks", e);
+        });
+      await Promise.all([
+        failStalledPromise,
+        resetFailedPromise,
+        clearFinishedPromise,
+      ]);
     } catch (e) {
       logger.warn("Failed to process stalled tasks", e);
     }
   }
 
-  private fetchMetrics() {
-    this.manageTasksQueueService
-      .tasksCount()
-      .then((tasksCounts) => {
-        this.queuesCounts = tasksCounts.groupBy((c) => c.queueName);
-        tasksCounts.foreach((c) => {
-          MetricsService.gauge(
-            `tasks_queue_${c.queueName}_${c.status}`.replace(
-              /[^a-zA-Z0-9_:]/g,
-              "_",
-            ),
-            () => {
-              return this.queuesCounts
-                .get(c.queueName)
-                .getOrElseValue(Nil)
-                .find((x) => c.status === x.status)
-                .map((c) => c.count)
-                .getOrElseValue(0);
-            },
-          );
-        });
-      })
-      .catch((e) => {
-        logger.warn("Failed to sync metrics", e);
+  async syncMetricsOnce(): Promise<void> {
+    try {
+      const tasksCounts = await this.manageTasksQueueService.tasksCount();
+      this.queuesCounts = tasksCounts.groupBy((c) => c.queueName);
+      tasksCounts.foreach((c) => {
+        MetricsService.gauge(
+          `tasks_queue_${c.queueName}_${c.status}`.replace(
+            /[^a-zA-Z0-9_:]/g,
+            "_",
+          ),
+          () => {
+            return this.queuesCounts
+              .get(c.queueName)
+              .getOrElseValue(Nil)
+              .find((x) => c.status === x.status)
+              .map((c) => c.count)
+              .getOrElseValue(0);
+          },
+        );
       });
+    } catch (e) {
+      logger.warn("Failed to sync metrics", e);
+    }
   }
 
   stop() {
-    option(this.workerTimer).foreach((t) => clearTimeout(t));
-    option(this.metricsTimer).foreach((t) => clearTimeout(t));
+    option(this.workerTimer).foreach((t) => clearInterval(t));
+    option(this.metricsTimer).foreach((t) => clearInterval(t));
   }
 }
