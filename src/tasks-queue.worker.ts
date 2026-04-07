@@ -163,14 +163,14 @@ export class TasksQueueWorker {
           some: async () => {
             await this.tasksQueueDao.rescheduleIfPeriodic(
               task.id,
-              context.nextPayload.orUndefined,
+              context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
             );
           },
           none: async () => {
             await this.tasksQueueDao.finish(
               task.id,
-              context.nextPayload.orUndefined,
+              context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
             );
             await this.wakeBlockedParent(task.id);

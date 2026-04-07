@@ -11,6 +11,7 @@ export default {
   },
   extensionsToTreatAsEsm: ['.ts'],
   testMatch: ['**/test/**/*.test.ts'],
+  testPathIgnorePatterns: ['<rootDir>/test/integration/'],
   collectCoverage: true,
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov'],

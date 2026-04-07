@@ -1,0 +1,69 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import { TaskStatus } from "../../src/tasks-model.js";
+import { BaseIntegrationTest } from "./base-integration-test.js";
+import { ControlledTestWorker } from "./support/controlled-test-worker.js";
+import { TestTaskEventsBus } from "./support/task-events-bus.js";
+
+class QueueIntegrationTest extends BaseIntegrationTest {}
+
+describe("Simple task integration", () => {
+  const test = new QueueIntegrationTest();
+  const bus = new TestTaskEventsBus();
+  const worker = new ControlledTestWorker(bus);
+
+  beforeAll(async () => {
+    await test.start();
+    test.tasksQueueService.registerWorker("email", worker);
+    test.startQueueService();
+  });
+
+  afterAll(async () => {
+    await test.stop();
+  });
+
+  beforeEach(async () => {
+    await test.reset();
+  });
+
+  it("starts and successfully finishes a controlled task with submitted result", async () => {
+    const payload = { userId: 42 };
+    const taskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload,
+    });
+
+    expect(taskId.isDefined).toBe(true);
+
+    const scheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    expect(scheduledTask.isDefined).toBe(true);
+    expect(scheduledTask.get.payload).toEqual(payload);
+
+    await expect(bus.waitForStarted(taskId.get)).resolves.toEqual({
+      type: "started",
+      taskId: taskId.get,
+      payload,
+    });
+
+    const startedTask = await test.manageTasksQueueService.findById(taskId.get);
+    expect(startedTask.isDefined).toBe(true);
+    expect(startedTask.get.status).toBe(TaskStatus.in_progress);
+    expect(startedTask.get.payload).toEqual(payload);
+    expect(startedTask.get.result).toBeNull();
+    expect(worker.isActive(taskId.get)).toBe(true);
+
+    worker.complete(taskId.get, { ok: true });
+
+    await expect(bus.waitForCompleted(taskId.get)).resolves.toEqual({
+      type: "completed",
+      taskId: taskId.get,
+      result: { ok: true },
+    });
+
+    const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
+    expect(finishedTask.isDefined).toBe(true);
+    expect(finishedTask.get.status).toBe(TaskStatus.finished);
+    expect(finishedTask.get.payload).toEqual(payload);
+    expect(finishedTask.get.result).toEqual({ ok: true });
+    expect(worker.isActive(taskId.get)).toBe(false);
+  });
+});

@@ -71,7 +71,7 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(taskWorker.process).toHaveBeenCalled();
-    expect(dao.finish).toHaveBeenCalledWith(1, undefined, undefined);
+    expect(dao.finish).toHaveBeenCalledWith(1, { foo: "bar" }, undefined);
     expect(dao.rescheduleIfPeriodic).not.toHaveBeenCalled();
   });
 
@@ -88,7 +88,7 @@ describe("TasksQueueWorker", () => {
 
     expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(
       1,
-      undefined,
+      { foo: "bar" },
       undefined,
     );
     expect(dao.finish).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(createTask());
 
-    expect(dao.finish).toHaveBeenCalledWith(1, undefined, { ok: true });
+    expect(dao.finish).toHaveBeenCalledWith(1, { foo: "bar" }, { ok: true });
   });
 
   it("passes submitted result into terminal failure flow", async () => {
