@@ -143,9 +143,7 @@ export class SequentialVideoWithLocalStepWorker extends SequentialTask<
   VideoWorkflowPayload
 > {
   constructor() {
-    super(
-      Collection.of("upload", "prepare-metadata", "metadata", "aggregate"),
-    );
+    super(Collection.of("upload", "prepare-metadata", "metadata", "aggregate"));
   }
 
   protected override async processStep(

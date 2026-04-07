@@ -225,13 +225,17 @@ export abstract class SequentialTask<
           },
           userPayload: userPayload as TUserPayload,
         });
-        trackers?.onSetPayload?.(nextPayload);
+        option(trackers)
+          .flatMap((t) => option(t.onSetPayload))
+          .foreach((cb) => cb(nextPayload));
         context.setPayload(nextPayload.toJson);
       },
       submitResult: (result: object) => context.submitResult(result),
       findTask: (taskId: number) => context.findTask(taskId),
       spawnChild: (task) => {
-        trackers?.onSpawnChild?.();
+        option(trackers)
+          .flatMap((t) => option(t.onSpawnChild))
+          .foreach((cb) => cb());
         context.spawnChild(task);
       },
     };
@@ -296,17 +300,17 @@ export abstract class SequentialTask<
   /**
    * Advance workflow state to the next configured step after successful child completion.
    *
- * Default behavior:
- * - update `workflowPayload.step` to the next configured step
- * - persist updated payload
- * - immediately continue with `processStep(...)`
- * - if that step finishes without `spawnChild(...)`, continue again until a
- *   child is spawned or the configured step list is exhausted
- *
- * @param payload current multi-step payload
- * @param _childTask completed child snapshot
- * @param context task runtime context
- */
+   * Default behavior:
+   * - update `workflowPayload.step` to the next configured step
+   * - persist updated payload
+   * - immediately continue with `processStep(...)`
+   * - if that step finishes without `spawnChild(...)`, continue again until a
+   *   child is spawned or the configured step list is exhausted
+   *
+   * @param payload current multi-step payload
+   * @param _childTask completed child snapshot
+   * @param context task runtime context
+   */
   protected override async childFinished(
     payload: MultiStepPayload<TUserPayload>,
     _childTask: TaskStateSnapshot,

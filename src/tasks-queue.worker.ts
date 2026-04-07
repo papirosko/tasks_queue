@@ -136,7 +136,9 @@ export class TasksQueueWorker {
     private readonly clock: Clock = new SystemClock(),
     queueNotifier?: (queueName: string) => void,
   ) {
-    this.queueNotifier = queueNotifier ?? ((queueName) => this.tasksScheduled(queueName));
+    this.queueNotifier = option(queueNotifier).getOrElse(
+      () => (queueName) => this.tasksScheduled(queueName),
+    );
     this.pipeline = new TasksPipeline(
       concurrency,
       () =>

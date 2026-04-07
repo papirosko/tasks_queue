@@ -7,7 +7,10 @@ import {
   it,
 } from "@jest/globals";
 import { Collection } from "scats";
-import { DEFAULT_POOL, TasksPoolsService } from "../../src/tasks-pools.service.js";
+import {
+  DEFAULT_POOL,
+  TasksPoolsService,
+} from "../../src/tasks-pools.service.js";
 import { MultiStepPayload } from "../../src/multi-step-payload.js";
 import { SequentialTask } from "../../src/sequential-task.js";
 import { TaskContext, TaskStatus } from "../../src/tasks-model.js";
@@ -139,7 +142,11 @@ describe("Cross-pool parent-child notification integration", () => {
       ],
     );
     poolsService.registerWorker(CROSS_POOL_PARENT_QUEUE, parentWorker);
-    poolsService.registerWorker(CROSS_POOL_CHILD_QUEUE, childWorker, CHILD_POOL);
+    poolsService.registerWorker(
+      CROSS_POOL_CHILD_QUEUE,
+      childWorker,
+      CHILD_POOL,
+    );
     poolsService.start();
   });
 
@@ -238,5 +245,7 @@ const waitForTaskState = async (
     }
     await sleep(20);
   }
-  throw new Error(`Timed out waiting for task ${taskId} to reach status ${status}`);
+  throw new Error(
+    `Timed out waiting for task ${taskId} to reach status ${status}`,
+  );
 };
