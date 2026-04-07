@@ -29,13 +29,13 @@ const createDeferred = (): Deferred => {
 };
 
 export class ControlledTestWorker extends TasksWorker {
-  private readonly activeExecutions =
-    new mutable.HashMap<number, ControlledExecution>();
+  private readonly activeExecutions = new mutable.HashMap<
+    number,
+    ControlledExecution
+  >();
   private readonly submittedResults = new mutable.HashMap<number, object>();
 
-  constructor(
-    private readonly eventsBus: TestTaskEventsBus,
-  ) {
+  constructor(private readonly eventsBus: TestTaskEventsBus) {
     super();
   }
 
@@ -67,7 +67,13 @@ export class ControlledTestWorker extends TasksWorker {
     _finalStatus: TaskStatus,
     error: any,
   ): Promise<void> {
-    this.eventsBus.emitFailed(taskId, String(error?.message ?? error));
+    const message =
+      error !== undefined &&
+      error !== null &&
+      "message" in (error as Record<string, unknown>)
+        ? String((error as { message: unknown }).message)
+        : String(error);
+    this.eventsBus.emitFailed(taskId, message);
     this.submittedResults.remove(taskId);
   }
 

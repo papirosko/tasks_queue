@@ -38,11 +38,17 @@ export class RecordingControlledWorker extends ControlledTestWorker {
     finalStatus: TaskStatus,
     error: any,
   ): Promise<void> {
+    const message =
+      error !== undefined &&
+      error !== null &&
+      "message" in (error as Record<string, unknown>)
+        ? String((error as { message: unknown }).message)
+        : String(error);
     this.failedCalls.append({
       taskId,
       payload,
       finalStatus,
-      error: String(error?.message ?? error),
+      error: message,
     });
     await super.failed(taskId, payload, finalStatus, error);
   }

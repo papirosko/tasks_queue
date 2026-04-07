@@ -2,18 +2,29 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import fs from "fs";
 import path from "path";
 
-const stateFile = path.join(process.cwd(), "test", "integration", "global-setup.json");
+const stateFile = path.join(
+  process.cwd(),
+  "test",
+  "integration",
+  "global-setup.json",
+);
 
 export default async function globalSetup() {
-  console.log("[integration:global-setup] starting postgres container");
+  process.stdout.write(
+    "[integration:global-setup] starting postgres container\n",
+  );
   const container = await new PostgreSqlContainer("postgres:16-alpine")
     .withDatabase("testdb")
     .withUsername("test")
     .withPassword("test")
     .start();
-  console.log("[integration:global-setup] postgres container started");
+  process.stdout.write(
+    "[integration:global-setup] postgres container started\n",
+  );
 
-  console.log("[integration:global-setup] writing shared postgres state file");
+  process.stdout.write(
+    "[integration:global-setup] writing shared postgres state file\n",
+  );
   fs.writeFileSync(
     stateFile,
     JSON.stringify({
@@ -24,8 +35,10 @@ export default async function globalSetup() {
       password: container.getPassword(),
     }),
   );
-  console.log("[integration:global-setup] shared postgres state file written");
+  process.stdout.write(
+    "[integration:global-setup] shared postgres state file written\n",
+  );
 
   (global as any).__POSTGRES_CONTAINER__ = container;
-  console.log("[integration:global-setup] setup completed");
+  process.stdout.write("[integration:global-setup] setup completed\n");
 }

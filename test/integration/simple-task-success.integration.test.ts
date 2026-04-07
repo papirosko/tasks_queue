@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { TaskStatus } from "../../src/tasks-model.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ControlledTestWorker } from "./support/controlled-test-worker.js";
@@ -36,7 +43,9 @@ describe("Simple task integration", () => {
     expect(taskId.isDefined).toBe(true);
 
     // Reload the task right after scheduling and verify the initial persisted payload.
-    const scheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    const scheduledTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(scheduledTask.isDefined).toBe(true);
     expect(scheduledTask.get.payload).toEqual(payload);
 
@@ -68,7 +77,9 @@ describe("Simple task integration", () => {
     await runPromise;
 
     // Reload the row and verify final finished state together with the persisted result.
-    const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
+    const finishedTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(finishedTask.isDefined).toBe(true);
     expect(finishedTask.get.status).toBe(TaskStatus.finished);
     expect(finishedTask.get.payload).toEqual(payload);

@@ -1,27 +1,36 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { mutable } from "scats";
 import { TaskContext, TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ManualClock } from "./support/manual-clock.js";
-import { TestTaskEventType, TestTaskEventsBus } from "./support/task-events-bus.js";
+import {
+  TestTaskEventType,
+  TestTaskEventsBus,
+} from "./support/task-events-bus.js";
 import { TasksWorker } from "../../src/tasks-worker.js";
 
 class QueueIntegrationTest extends BaseIntegrationTest {}
 
 class HeartbeatControlledWorker extends TasksWorker {
-  private readonly executions =
-    new mutable.HashMap<
-      number,
-      mutable.ArrayBuffer<{
-        context: TaskContext;
-        deferred: {
-          promise: Promise<void>;
-          resolve: () => void;
-          reject: (error: Error) => void;
-        };
-      }>
-    >();
+  private readonly executions = new mutable.HashMap<
+    number,
+    mutable.ArrayBuffer<{
+      context: TaskContext;
+      deferred: {
+        promise: Promise<void>;
+        resolve: () => void;
+        reject: (error: Error) => void;
+      };
+    }>
+  >();
 
   constructor(private readonly bus: TestTaskEventsBus) {
     super();
@@ -57,7 +66,13 @@ class HeartbeatControlledWorker extends TasksWorker {
     _finalStatus: TaskStatus,
     error: any,
   ): Promise<void> {
-    this.bus.emitFailed(taskId, String(error?.message ?? error));
+    const message =
+      error !== undefined &&
+      error !== null &&
+      "message" in (error as Record<string, unknown>)
+        ? String((error as { message: unknown }).message)
+        : String(error);
+    this.bus.emitFailed(taskId, message);
   }
 
   async ping(taskId: number, occurrence: number = 1): Promise<void> {
@@ -226,7 +241,9 @@ describe("Stalled heartbeat integration", () => {
       [taskId.get],
     );
     expect(rowAfterStalePing.rows[0]["status"]).toBe(TaskStatus.in_progress);
-    expect(new Date(rowAfterStalePing.rows[0]["started"])).toEqual(secondStarted);
+    expect(new Date(rowAfterStalePing.rows[0]["started"])).toEqual(
+      secondStarted,
+    );
     expect(rowAfterStalePing.rows[0]["last_heartbeat"]).toBeNull();
     expect(rowAfterStalePing.rows[0]["result"]).toBeNull();
 
@@ -243,7 +260,9 @@ describe("Stalled heartbeat integration", () => {
     // The current retry attempt still owns the row and can finish normally.
     worker.complete(taskId.get, 2, { fresh: true });
     await secondRun;
-    const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
+    const finishedTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(finishedTask.isDefined).toBe(true);
     expect(finishedTask.get.status).toBe(TaskStatus.finished);
     expect(finishedTask.get.result).toEqual({ fresh: true });
@@ -281,7 +300,9 @@ describe("Stalled heartbeat integration", () => {
       [taskId.get],
     );
     const secondStarted = new Date(rowBeforeStaleFailure.rows[0]["started"]);
-    expect(rowBeforeStaleFailure.rows[0]["status"]).toBe(TaskStatus.in_progress);
+    expect(rowBeforeStaleFailure.rows[0]["status"]).toBe(
+      TaskStatus.in_progress,
+    );
     expect(rowBeforeStaleFailure.rows[0]["error"]).toBe("Timeout");
     expect(rowBeforeStaleFailure.rows[0]["result"]).toBeNull();
 
@@ -307,7 +328,9 @@ describe("Stalled heartbeat integration", () => {
     worker.complete(taskId.get, 2, { fresh: true });
     await secondRun;
 
-    const finishedTask = await test.manageTasksQueueService.findById(taskId.get);
+    const finishedTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(finishedTask.isDefined).toBe(true);
     expect(finishedTask.get.status).toBe(TaskStatus.finished);
     expect(finishedTask.get.result).toEqual({ fresh: true });

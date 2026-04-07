@@ -1,4 +1,4 @@
-import { Option } from "scats";
+import { option, Option } from "scats";
 import { CronExpressionUtils } from "./cron-expression-utils.js";
 import { MissedRunStrategy, TaskPeriodType } from "./tasks-model.js";
 import type {
@@ -64,13 +64,15 @@ export class PeriodicScheduleUtils {
       return null;
     }
     const cronTask = task as ScheduleCronTaskDetails;
-    const cronExpression = cronTask.cronExpression?.trim();
-    if (!cronExpression) {
+    const cronExpression = option(cronTask.cronExpression)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (cronExpression.isEmpty) {
       throw new Error(
         "Periodic task with type='cron' must define non-empty 'cronExpression'",
       );
     }
-    return cronExpression;
+    return cronExpression.get;
   }
 
   /**

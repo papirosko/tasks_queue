@@ -1,5 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { Collection } from "scats";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "@jest/globals";
+import { Collection, Nil } from "scats";
 import { MetricsService } from "application-metrics";
 import { TasksCount } from "../src/manage.model.js";
 import { TaskStatus } from "../src/tasks-model.js";
@@ -34,7 +41,7 @@ describe("TasksAuxiliaryWorker", () => {
 
   it("starts immediate maintenance and metrics passes, then repeats them on schedule until stopped", async () => {
     const dao = {
-      failStalled: jest.fn(async () => Collection.from<number>([])),
+      failStalled: jest.fn(async () => Nil),
       resetFailed: jest.fn(async () => undefined),
       clearFinished: jest.fn(async () => undefined),
     };
@@ -78,7 +85,11 @@ describe("TasksAuxiliaryWorker", () => {
     await jest.advanceTimersByTimeAsync(TimeUtils.minute * 3);
     expect(dao.failStalled).toHaveBeenCalledTimes(maintenanceCallsBeforeStop);
     expect(dao.resetFailed).toHaveBeenCalledTimes(resetCallsBeforeStop);
-    expect(dao.clearFinished).toHaveBeenCalledTimes(clearFinishedCallsBeforeStop);
-    expect(manageService.tasksCount).toHaveBeenCalledTimes(metricsCallsBeforeStop);
+    expect(dao.clearFinished).toHaveBeenCalledTimes(
+      clearFinishedCallsBeforeStop,
+    );
+    expect(manageService.tasksCount).toHaveBeenCalledTimes(
+      metricsCallsBeforeStop,
+    );
   });
 });

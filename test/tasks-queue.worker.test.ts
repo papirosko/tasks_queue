@@ -1,5 +1,5 @@
 import { afterEach, jest } from "@jest/globals";
-import { none, some } from "scats";
+import { mutable, none, some } from "scats";
 import {
   TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
@@ -291,20 +291,32 @@ describe("TasksQueueWorker", () => {
 
     await (worker as any).processNextTask(task);
 
-    expect(dao.ping).toHaveBeenCalledWith(
-      1,
-      task.started,
-      expect.any(Date),
-    );
+    expect(dao.ping).toHaveBeenCalledWith(1, task.started, expect.any(Date));
   });
 
   it("throttles repeated context.ping() calls in runtime", async () => {
     const t0 = 1_000;
     const t1 = 1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1;
     const t2 = 1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1;
-    const nowValues = [t0, t0, t0, t0, t1, t1, t2, t2, t2];
+    const nowValues = new mutable.ArrayBuffer<number>();
+    nowValues
+      .append(t0)
+      .append(t0)
+      .append(t0)
+      .append(t0)
+      .append(t1)
+      .append(t1)
+      .append(t2)
+      .append(t2)
+      .append(t2);
     const clock: Clock = {
-      now: jest.fn(() => new Date(nowValues.shift() ?? 0)),
+      now: jest.fn(() => {
+        const nextValue = nowValues.headOption.getOrElseValue(0);
+        if (nowValues.nonEmpty) {
+          nowValues.remove(0);
+        }
+        return new Date(nextValue);
+      }),
     };
     const dao = createDao();
     const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
@@ -324,9 +336,18 @@ describe("TasksQueueWorker", () => {
   });
 
   it("fails the task when process returns after the timeout window", async () => {
-    const nowValues = [new Date(TimeUtils.second + 1)];
+    const nowValues = new mutable.ArrayBuffer<Date>();
+    nowValues.append(new Date(TimeUtils.second + 1));
     const clock: Clock = {
-      now: () => nowValues.shift() ?? new Date(TimeUtils.second + 1),
+      now: () => {
+        const nextValue = nowValues.headOption.getOrElseValue(
+          new Date(TimeUtils.second + 1),
+        );
+        if (nowValues.nonEmpty) {
+          nowValues.remove(0);
+        }
+        return nextValue;
+      },
     };
     const dao = createDao({
       failIfStalled: jest.fn(async () => some(TaskStatus.error)),
@@ -334,7 +355,10 @@ describe("TasksQueueWorker", () => {
     const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
     const taskWorker = new TestWorker();
     worker.registerWorker("q", taskWorker);
-    const task = createTask({ timeout: TimeUtils.second, started: new Date(0) });
+    const task = createTask({
+      timeout: TimeUtils.second,
+      started: new Date(0),
+    });
 
     await (worker as any).processNextTask(task);
 
@@ -357,9 +381,18 @@ describe("TasksQueueWorker", () => {
   });
 
   it("throws from context.ping when the task is already stalled", async () => {
-    const nowValues = [new Date(TimeUtils.second + 1)];
+    const nowValues = new mutable.ArrayBuffer<Date>();
+    nowValues.append(new Date(TimeUtils.second + 1));
     const clock: Clock = {
-      now: () => nowValues.shift() ?? new Date(TimeUtils.second + 1),
+      now: () => {
+        const nextValue = nowValues.headOption.getOrElseValue(
+          new Date(TimeUtils.second + 1),
+        );
+        if (nowValues.nonEmpty) {
+          nowValues.remove(0);
+        }
+        return nextValue;
+      },
     };
     const dao = createDao({
       failIfStalled: jest.fn(async () => some(TaskStatus.error)),
@@ -372,7 +405,10 @@ describe("TasksQueueWorker", () => {
       },
     );
     worker.registerWorker("q", taskWorker);
-    const task = createTask({ timeout: TimeUtils.second, started: new Date(0) });
+    const task = createTask({
+      timeout: TimeUtils.second,
+      started: new Date(0),
+    });
 
     await (worker as any).processNextTask(task);
 

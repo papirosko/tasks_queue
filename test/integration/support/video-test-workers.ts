@@ -15,7 +15,8 @@ export const VIDEO_PARENT_SECOND_CHILD_FAILURE_QUEUE =
 export const VIDEO_PARENT_SECOND_CHILD_ALLOW_FAILURE_QUEUE =
   "video-parent-second-child-allow-failure";
 export const VIDEO_PARENT_STALLED_CHILD_QUEUE = "video-parent-stalled-child";
-export const VIDEO_PARENT_POST_CHILD_CRASH_QUEUE = "video-parent-post-child-crash";
+export const VIDEO_PARENT_POST_CHILD_CRASH_QUEUE =
+  "video-parent-post-child-crash";
 export const VIDEO_PARENT_TASK_FAILED_QUEUE = "video-parent-task-failed";
 export const VIDEO_TASK_FAILED_UPLOAD_QUEUE = "video-task-failed-upload";
 
@@ -79,9 +80,9 @@ export class SequentialVideoWorker extends SequentialTask<
         });
         return;
       case "metadata": {
-        const uploadResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as VideoWorkflowPayload["uploadResult"];
+        const uploadResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as VideoWorkflowPayload["uploadResult"];
         context.setPayload({
           ...payload,
           uploadResult,
@@ -89,15 +90,20 @@ export class SequentialVideoWorker extends SequentialTask<
         context.spawnChild({
           queue: VIDEO_METADATA_QUEUE,
           payload: {
-            path: String(uploadResult?.path ?? ""),
+            path:
+              uploadResult !== undefined &&
+              uploadResult !== null &&
+              "path" in uploadResult
+                ? String(uploadResult.path)
+                : "",
           },
         });
         return;
       }
       case "aggregate": {
-        const metadataResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as VideoWorkflowPayload["metadataResult"];
+        const metadataResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as VideoWorkflowPayload["metadataResult"];
         context.setPayload({
           ...payload,
           metadataResult,
@@ -210,12 +216,12 @@ export class SequentialAllowFailureVideoWorker extends SequentialTask<
         });
         return;
       case "aggregate": {
-        const childStatus = context.resolvedChildTask
-          .map((task) => task.status)
-          .orUndefined;
-        const childError = context.resolvedChildTask
-          .map((task) => task.error)
-          .orUndefined;
+        const childStatus = context.resolvedChildTask.map(
+          (task) => task.status,
+        ).orUndefined;
+        const childError = context.resolvedChildTask.map(
+          (task) => task.error,
+        ).orUndefined;
         context.setPayload({
           ...payload,
           childStatus,
@@ -284,12 +290,14 @@ export class SequentialSecondChildFailingVideoWorker extends SequentialTask<
         });
         return;
       case "metadata": {
-        const uploadResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as {
-          videoId: string;
-          path: string;
-        } | undefined;
+        const uploadResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as
+          | {
+              videoId: string;
+              path: string;
+            }
+          | undefined;
         context.setPayload({
           ...payload,
           uploadResult,
@@ -297,7 +305,12 @@ export class SequentialSecondChildFailingVideoWorker extends SequentialTask<
         context.spawnChild({
           queue: VIDEO_FAILING_UPLOAD_QUEUE,
           payload: {
-            path: String(uploadResult?.path ?? ""),
+            path:
+              uploadResult !== undefined &&
+              uploadResult !== null &&
+              "path" in uploadResult
+                ? String(uploadResult.path)
+                : "",
           },
           retries: 2,
           backoff: TimeUtils.minute,
@@ -361,12 +374,14 @@ export class SequentialSecondChildAllowFailureVideoWorker extends SequentialTask
         });
         return;
       case "metadata": {
-        const uploadResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as {
-          videoId: string;
-          path: string;
-        } | undefined;
+        const uploadResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as
+          | {
+              videoId: string;
+              path: string;
+            }
+          | undefined;
         context.setPayload({
           ...payload,
           uploadResult,
@@ -374,7 +389,12 @@ export class SequentialSecondChildAllowFailureVideoWorker extends SequentialTask
         context.spawnChild({
           queue: VIDEO_FAILING_UPLOAD_QUEUE,
           payload: {
-            path: String(uploadResult?.path ?? ""),
+            path:
+              uploadResult !== undefined &&
+              uploadResult !== null &&
+              "path" in uploadResult
+                ? String(uploadResult.path)
+                : "",
           },
           retries: 2,
           backoff: TimeUtils.minute,
@@ -383,12 +403,12 @@ export class SequentialSecondChildAllowFailureVideoWorker extends SequentialTask
         return;
       }
       case "aggregate": {
-        const childStatus = context.resolvedChildTask
-          .map((task) => task.status)
-          .orUndefined;
-        const childError = context.resolvedChildTask
-          .map((task) => task.error)
-          .orUndefined;
+        const childStatus = context.resolvedChildTask.map(
+          (task) => task.status,
+        ).orUndefined;
+        const childError = context.resolvedChildTask.map(
+          (task) => task.error,
+        ).orUndefined;
         context.setPayload({
           ...payload,
           childStatus,
@@ -499,12 +519,14 @@ export class SequentialParentCrashAfterWakeWorker extends SequentialTask<
         });
         return;
       case "aggregate": {
-        const uploadResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as {
-          videoId: string;
-          path: string;
-        } | undefined;
+        const uploadResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as
+          | {
+              videoId: string;
+              path: string;
+            }
+          | undefined;
         context.setPayload({
           ...payload,
           uploadResult,
@@ -571,13 +593,15 @@ export class SequentialTaskFailedVideoWorker extends SequentialTask<
         });
         return;
       case "aggregate": {
-        const childResult = context.resolvedChildTask
-          .flatMap((task) => task.result)
-          .orUndefined as {
-          videoId: string;
-          path: string;
-          retried: boolean;
-        } | undefined;
+        const childResult = context.resolvedChildTask.flatMap(
+          (task) => task.result,
+        ).orUndefined as
+          | {
+              videoId: string;
+              path: string;
+              retried: boolean;
+            }
+          | undefined;
         context.setPayload({
           ...payload,
           childResult,

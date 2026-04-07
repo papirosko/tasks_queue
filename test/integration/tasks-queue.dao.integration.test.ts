@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
@@ -352,7 +359,9 @@ describe("TasksQueueService integration", () => {
     );
 
     expect(childTaskId.isDefined).toBe(false);
-    const parent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const parent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(parent.isDefined).toBe(true);
     expect(parent.get.status).toBe(TaskStatus.in_progress);
     const children = await test.db.query(

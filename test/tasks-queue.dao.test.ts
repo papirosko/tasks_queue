@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { some } from "scats";
 import { TasksQueueDao } from "../src/tasks-queue.dao.js";
-import { TASK_HEARTBEAT_THROTTLE_MS, TaskStatus } from "../src/tasks-model.js";
+import { TaskStatus } from "../src/tasks-model.js";
 
 const createDao = (query: any) => {
   const release = jest.fn();
@@ -23,7 +23,10 @@ describe("TasksQueueDao", () => {
     const now = new Date("2026-04-02T10:00:00.000Z");
     const started = new Date("2026-04-02T09:55:00.000Z");
     jest.useFakeTimers().setSystemTime(now);
-    const query = jest.fn(async () => ({ rows: [{ status: "in_progress", started, last_heartbeat: null }], rowCount: 1 }));
+    const query = jest.fn(async () => ({
+      rows: [{ status: "in_progress", started, last_heartbeat: null }],
+      rowCount: 1,
+    }));
     const { dao, release } = createDao(query);
 
     await dao.ping(42, started);
@@ -34,12 +37,7 @@ describe("TasksQueueDao", () => {
     );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("set last_heartbeat = $1"),
-      [
-        now,
-        42,
-        TaskStatus.in_progress,
-        started,
-      ],
+      [now, 42, TaskStatus.in_progress, started],
     );
     expect(release).toHaveBeenCalled();
     jest.useRealTimers();

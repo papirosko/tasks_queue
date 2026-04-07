@@ -155,10 +155,14 @@ describe("TasksAuxiliaryWorker integration", () => {
     gaugeSpy.mock.calls.forEach(([name, gaugeFactory]) => {
       registeredGauges.set(name as string, gaugeFactory as () => number);
     });
+    const pendingGauge = registeredGauges.get(
+      "tasks_queue_preview_jobs_pending",
+    );
+    const errorGauge = registeredGauges.get("tasks_queue_preview_jobs_error");
 
     expect(registeredGauges.has("tasks_queue_preview_jobs_pending")).toBe(true);
     expect(registeredGauges.has("tasks_queue_preview_jobs_error")).toBe(true);
-    expect(registeredGauges.get("tasks_queue_preview_jobs_pending")?.()).toBe(1);
-    expect(registeredGauges.get("tasks_queue_preview_jobs_error")?.()).toBe(1);
+    expect(pendingGauge === undefined ? undefined : pendingGauge()).toBe(1);
+    expect(errorGauge === undefined ? undefined : errorGauge()).toBe(1);
   });
 });

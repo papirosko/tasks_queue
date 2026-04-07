@@ -64,7 +64,10 @@ class RuntimeTaskContext implements TaskContext {
     const now = this.clock.now().getTime();
     if (
       this.lastHeartbeatAt
-        .map((lastHeartbeatAt) => now - lastHeartbeatAt < TASK_HEARTBEAT_THROTTLE_MS)
+        .map(
+          (lastHeartbeatAt) =>
+            now - lastHeartbeatAt < TASK_HEARTBEAT_THROTTLE_MS,
+        )
         .getOrElseValue(false)
     ) {
       return;
@@ -106,7 +109,9 @@ class RuntimeTaskContext implements TaskContext {
   }
 
   payloadToPersist(currentPayload: object | undefined): object {
-    return this._nextPayload.getOrElseValue(currentPayload ?? {});
+    return this._nextPayload.getOrElseValue(
+      option(currentPayload).getOrElseValue({}),
+    );
   }
 
   get nextPayload(): Option<object> {
@@ -131,7 +136,8 @@ export class TasksQueueWorker {
   ) {
     this.pipeline = new TasksPipeline(
       concurrency,
-      () => this.tasksQueueDao.nextPending(this.workers.keySet, this.clock.now()),
+      () =>
+        this.tasksQueueDao.nextPending(this.workers.keySet, this.clock.now()),
       () =>
         this.tasksQueueDao.peekNextStartAfter(
           this.workers.keySet,
@@ -292,14 +298,14 @@ export class TasksQueueWorker {
               ? e.finalStatus
               : (
                   await this.tasksQueueDao.fail(
-                  task.id,
-                  (e as any)["message"] || e,
-                  e instanceof TaskFailed ? e.payload : task.payload,
-                  context.submittedResult.orUndefined,
-                  task.started,
-                  this.clock.now(),
-                )
-              ).getOrElseValue(TaskStatus.error);
+                    task.id,
+                    (e as any)["message"] || e,
+                    e instanceof TaskFailed ? e.payload : task.payload,
+                    context.submittedResult.orUndefined,
+                    task.started,
+                    this.clock.now(),
+                  )
+                ).getOrElseValue(TaskStatus.error);
           if (
             finalStatus === TaskStatus.error &&
             !(e instanceof TaskTimedOutError)

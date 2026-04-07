@@ -56,11 +56,16 @@ export abstract class BaseIntegrationTest {
 
     this.dao = new TasksQueueDao(this.pool);
     this.manage = new ManageTasksQueueService(this.pool);
-    this.service = new TasksQueueService(this.dao, this.manage, {
-      concurrency: 1,
-      runAuxiliaryWorker: false,
-      loopInterval: 1000,
-    }, this.clock);
+    this.service = new TasksQueueService(
+      this.dao,
+      this.manage,
+      {
+        concurrency: 1,
+        runAuxiliaryWorker: false,
+        loopInterval: 1000,
+      },
+      this.clock,
+    );
   }
 
   get db(): pg.Pool {
@@ -85,7 +90,9 @@ export abstract class BaseIntegrationTest {
   }
 
   async reset(): Promise<void> {
-    await this.pool.query("truncate table tasks_queue restart identity cascade");
+    await this.pool.query(
+      "truncate table tasks_queue restart identity cascade",
+    );
   }
 
   async stop(): Promise<void> {
@@ -93,6 +100,6 @@ export abstract class BaseIntegrationTest {
       await this.service.stop();
       this.queueServiceStarted = false;
     }
-    await this.pool?.end();
+    await this.pool.end();
   }
 }

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
@@ -48,8 +55,12 @@ describe("Lifecycle callbacks integration", () => {
     await runPromise;
 
     // Verify that success lifecycle hooks ran and failure hook was not touched.
-    expect(worker.startingCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
-    expect(worker.completedCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
+    expect(worker.startingCalls.toArray).toEqual([
+      { taskId: taskId.get, payload },
+    ]);
+    expect(worker.completedCalls.toArray).toEqual([
+      { taskId: taskId.get, payload },
+    ]);
     expect(worker.failedCalls.toArray).toEqual([]);
   });
 
@@ -69,7 +80,9 @@ describe("Lifecycle callbacks integration", () => {
     await runPromise;
 
     // Confirm that the failure callback receives the final terminal status.
-    expect(worker.startingCalls.toArray).toEqual([{ taskId: taskId.get, payload }]);
+    expect(worker.startingCalls.toArray).toEqual([
+      { taskId: taskId.get, payload },
+    ]);
     expect(worker.completedCalls.toArray).toEqual([]);
     expect(worker.failedCalls.toArray).toEqual([
       {

@@ -48,11 +48,16 @@ export class TasksPoolsService {
     }
     this.pools = poolsCollection.toMap((p) => [
       p.name,
-      new TasksQueueService(dao, manageTasksQueueService, {
-        concurrency: p.concurrency,
-        runAuxiliaryWorker: false,
-        loopInterval: p.loopInterval,
-      }, this.clock),
+      new TasksQueueService(
+        dao,
+        manageTasksQueueService,
+        {
+          concurrency: p.concurrency,
+          runAuxiliaryWorker: false,
+          loopInterval: p.loopInterval,
+        },
+        this.clock,
+      ),
     ]);
     this.auxiliaryWorker = runAuxiliaryWorker
       ? some(new TasksAuxiliaryWorker(dao, manageTasksQueueService, this.clock))

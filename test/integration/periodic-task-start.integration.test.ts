@@ -1,29 +1,38 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { mutable, Option } from "scats";
 import { TaskPeriodType, TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ControlledTestWorker } from "./support/controlled-test-worker.js";
 import { ManualClock } from "./support/manual-clock.js";
-import { TestTaskEventType, TestTaskEventsBus } from "./support/task-events-bus.js";
+import {
+  TestTaskEventType,
+  TestTaskEventsBus,
+} from "./support/task-events-bus.js";
 import { TaskContext } from "../../src/tasks-model.js";
 import { TasksWorker } from "../../src/tasks-worker.js";
 
 class QueueIntegrationTest extends BaseIntegrationTest {}
 
 class MultiExecutionControlledWorker extends TasksWorker {
-  private readonly executions =
-    new mutable.HashMap<
-      number,
-      mutable.ArrayBuffer<{
-        context: TaskContext;
-        deferred: {
-          promise: Promise<void>;
-          resolve: () => void;
-          reject: (error: Error) => void;
-        };
-      }>
-    >();
+  private readonly executions = new mutable.HashMap<
+    number,
+    mutable.ArrayBuffer<{
+      context: TaskContext;
+      deferred: {
+        promise: Promise<void>;
+        resolve: () => void;
+        reject: (error: Error) => void;
+      };
+    }>
+  >();
   private readonly submittedResults = new mutable.HashMap<string, object>();
 
   constructor(private readonly bus: TestTaskEventsBus) {
@@ -51,7 +60,10 @@ class MultiExecutionControlledWorker extends TasksWorker {
   }
 
   override async completed(taskId: number): Promise<void> {
-    this.bus.emitCompleted(taskId, this.submittedResults.get(`${taskId}:2`).orUndefined);
+    this.bus.emitCompleted(
+      taskId,
+      this.submittedResults.get(`${taskId}:2`).orUndefined,
+    );
     this.submittedResults.clear();
   }
 
@@ -61,7 +73,13 @@ class MultiExecutionControlledWorker extends TasksWorker {
     _finalStatus: TaskStatus,
     error: any,
   ): Promise<void> {
-    this.bus.emitFailed(taskId, String(error?.message ?? error));
+    const message =
+      error !== undefined &&
+      error !== null &&
+      "message" in (error as Record<string, unknown>)
+        ? String((error as { message: unknown }).message)
+        : String(error);
+    this.bus.emitFailed(taskId, message);
   }
 
   complete(taskId: number, occurrence: number = 1, result?: object): void {
@@ -229,9 +247,12 @@ describe("Periodic task start integration", () => {
         where id = $1`,
       [taskId.get],
     );
-    const secondStarted = new Date(rowWhileSecondRunActive.rows[0]["started"]);
-    const retryStartAfter = new Date(rowWhileSecondRunActive.rows[0]["start_after"]);
-    expect(rowWhileSecondRunActive.rows[0]["status"]).toBe(TaskStatus.in_progress);
+    const retryStartAfter = new Date(
+      rowWhileSecondRunActive.rows[0]["start_after"],
+    );
+    expect(rowWhileSecondRunActive.rows[0]["status"]).toBe(
+      TaskStatus.in_progress,
+    );
     expect(rowWhileSecondRunActive.rows[0]["result"]).toBeNull();
 
     // Completing the stale first run already happened above; it must not have shifted the periodic timer.
@@ -241,14 +262,18 @@ describe("Periodic task start integration", () => {
     multiRunWorker.complete(taskId.get, 2, { fresh: true });
     await secondRun;
 
-    const rescheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    const rescheduledTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(rescheduledTask.isDefined).toBe(true);
     expect(rescheduledTask.get.status).toBe(TaskStatus.pending);
     expect(rescheduledTask.get.result).toEqual({ fresh: true });
     expect(rescheduledTask.get.startAfter.orUndefined).toEqual(
       new Date(scheduledStart.getTime() + TimeUtils.minute),
     );
-    expect(rescheduledTask.get.startAfter.orUndefined).not.toEqual(retryStartAfter);
+    expect(rescheduledTask.get.startAfter.orUndefined).not.toEqual(
+      retryStartAfter,
+    );
   });
 
   async function expectStartsOnTime(
@@ -262,7 +287,9 @@ describe("Periodic task start integration", () => {
 
     expect(taskId.isDefined).toBe(true);
 
-    const scheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    const scheduledTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(scheduledTask.isDefined).toBe(true);
     expect(scheduledTask.get.status).toBe(TaskStatus.pending);
     expect(scheduledTask.get.payload).toEqual(payload);
@@ -279,7 +306,9 @@ describe("Periodic task start integration", () => {
     expect(startedEventsCount(taskId.get)).toBe(0);
 
     // Reload task to verify it remains pending until the exact scheduled time.
-    const beforeStartTask = await test.manageTasksQueueService.findById(taskId.get);
+    const beforeStartTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(beforeStartTask.isDefined).toBe(true);
     expect(beforeStartTask.get.status).toBe(TaskStatus.pending);
     expect(beforeStartTask.get.payload).toEqual(payload);
@@ -307,7 +336,9 @@ describe("Periodic task start integration", () => {
     await runPromise;
 
     // Validate that the task returned to pending state with attempts reset and next start computed.
-    const rescheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    const rescheduledTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(rescheduledTask.isDefined).toBe(true);
     expect(rescheduledTask.get.status).toBe(TaskStatus.pending);
     expect(rescheduledTask.get.attempt).toBe(0);

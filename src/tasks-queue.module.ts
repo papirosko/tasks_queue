@@ -92,15 +92,14 @@ export class TasksQueueModule
       };
     }
     // `as Type<TasksQueueOptionsFactory>` is a workaround for microsoft/TypeScript#31603
-    const inject = [
-      (options.useClass ||
-        options.useExisting) as Type<TasksQueueOptionsFactory>,
-    ];
     return {
       provide: TASKS_QUEUE_OPTIONS,
       useFactory: async (optionsFactory: TasksQueueOptionsFactory) =>
         await optionsFactory.createTelegrafOptions(),
-      inject,
+      inject: [
+        (options.useClass ||
+          options.useExisting) as Type<TasksQueueOptionsFactory>,
+      ],
     };
   }
 

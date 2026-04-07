@@ -174,7 +174,7 @@ export class ManageTasksQueueService {
         TaskStatus.finished,
       ],
     );
-    return (res.rowCount ?? 0) > 0;
+    return option(res.rowCount).getOrElseValue(0) > 0;
   }
 
   /**
@@ -225,7 +225,7 @@ export class ManageTasksQueueService {
         details.backoffType,
       ],
     );
-    return (res.rowCount ?? 0) > 0;
+    return option(res.rowCount).getOrElseValue(0) > 0;
   }
 
   /**
@@ -285,7 +285,7 @@ export class ManageTasksQueueService {
         details.missedRunStrategy,
       ],
     );
-    return (res.rowCount ?? 0) > 0;
+    return option(res.rowCount).getOrElseValue(0) > 0;
   }
 
   async waitTimeByQueue(): Promise<Collection<QueueStat>> {

@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import {
   BackoffType,
   MissedRunStrategy,
@@ -99,8 +106,12 @@ describe("ManageTasksQueueService integration", () => {
     });
 
     expect(page.total).toBe("1");
-    expect(page.items.map((task) => task.id).toArray).toEqual([secondTaskId.get]);
-    expect(page.items.map((task) => task.payload).toArray).toEqual([{ seq: 2 }]);
+    expect(page.items.map((task) => task.id).toArray).toEqual([
+      secondTaskId.get,
+    ]);
+    expect(page.items.map((task) => task.payload).toArray).toEqual([
+      { seq: 2 },
+    ]);
   });
 
   it("updates editable runtime fields for pending task", async () => {
@@ -113,18 +124,23 @@ describe("ManageTasksQueueService integration", () => {
       backoff: TimeUtils.second,
       backoffType: BackoffType.linear,
     });
-    const updatedStartAfter = new Date(baseTime.getTime() + TimeUtils.minute * 5);
+    const updatedStartAfter = new Date(
+      baseTime.getTime() + TimeUtils.minute * 5,
+    );
 
     // Replace the pending task runtime configuration through the management service.
-    const updated = await test.manageTasksQueueService.updatePendingTask(taskId.get, {
-      startAfter: updatedStartAfter,
-      priority: 9,
-      timeout: TimeUtils.minute * 10,
-      payload: { version: 2, reconfigured: true },
-      retries: 4,
-      backoff: TimeUtils.second * 15,
-      backoffType: BackoffType.constant,
-    });
+    const updated = await test.manageTasksQueueService.updatePendingTask(
+      taskId.get,
+      {
+        startAfter: updatedStartAfter,
+        priority: 9,
+        timeout: TimeUtils.minute * 10,
+        payload: { version: 2, reconfigured: true },
+        retries: 4,
+        backoff: TimeUtils.second * 15,
+        backoffType: BackoffType.constant,
+      },
+    );
 
     expect(updated).toBe(true);
 
@@ -181,20 +197,25 @@ describe("ManageTasksQueueService integration", () => {
       startAfter: new Date(baseTime.getTime() + TimeUtils.minute),
       payload: { kind: "report" },
     });
-    const updatedStartAfter = new Date(baseTime.getTime() + TimeUtils.minute * 10);
-    const updatedInitialStart = new Date(baseTime.getTime() + TimeUtils.minute * 3);
+    const updatedStartAfter = new Date(
+      baseTime.getTime() + TimeUtils.minute * 10,
+    );
+    const updatedInitialStart = new Date(
+      baseTime.getTime() + TimeUtils.minute * 3,
+    );
 
     // Replace interval schedule with cron settings through the management API.
-    const updated = await test.manageTasksQueueService.updatePendingPeriodicSchedule(
-      taskId.get,
-      {
-        startAfter: updatedStartAfter,
-        initialStart: updatedInitialStart,
-        repeatType: TaskPeriodType.cron,
-        cronExpression: "0 */5 * * * *",
-        missedRunStrategy: MissedRunStrategy.catch_up,
-      },
-    );
+    const updated =
+      await test.manageTasksQueueService.updatePendingPeriodicSchedule(
+        taskId.get,
+        {
+          startAfter: updatedStartAfter,
+          initialStart: updatedInitialStart,
+          repeatType: TaskPeriodType.cron,
+          cronExpression: "0 */5 * * * *",
+          missedRunStrategy: MissedRunStrategy.catch_up,
+        },
+      );
 
     expect(updated).toBe(true);
 
@@ -280,19 +301,20 @@ describe("ManageTasksQueueService integration", () => {
         where id = $3`,
       [TaskStatus.in_progress, clock.now(), parentTaskId.get],
     );
-    const protectedChildId = await test.tasksQueueDao.blockParentAndScheduleChild(
-      parentTaskId.get,
-      {
-        queue: "email-child",
-        payload: { kind: "child" },
-      },
-      {
-        workflowPayload: { step: "child" },
-        userPayload: { userId: 42 },
-      },
-      clock.now(),
-      clock.now(),
-    );
+    const protectedChildId =
+      await test.tasksQueueDao.blockParentAndScheduleChild(
+        parentTaskId.get,
+        {
+          queue: "email-child",
+          payload: { kind: "child" },
+        },
+        {
+          workflowPayload: { step: "child" },
+          userPayload: { userId: 42 },
+        },
+        clock.now(),
+        clock.now(),
+      );
     await test.db.query(
       `update tasks_queue
           set status = $1,
@@ -351,8 +373,12 @@ describe("ManageTasksQueueService integration", () => {
     // Restart only the selected failed task and keep the other one unchanged.
     await test.manageTasksQueueService.restartFailedTask(firstTaskId.get);
 
-    const firstTask = await test.manageTasksQueueService.findById(firstTaskId.get);
-    const secondTask = await test.manageTasksQueueService.findById(secondTaskId.get);
+    const firstTask = await test.manageTasksQueueService.findById(
+      firstTaskId.get,
+    );
+    const secondTask = await test.manageTasksQueueService.findById(
+      secondTaskId.get,
+    );
     expect(firstTask.isDefined).toBe(true);
     expect(firstTask.get.status).toBe(TaskStatus.pending);
     expect(firstTask.get.attempt).toBe(0);
@@ -384,8 +410,12 @@ describe("ManageTasksQueueService integration", () => {
     // Restart all failed tasks only in the email queue.
     await test.manageTasksQueueService.restartAllFailedInQueue("email");
 
-    const emailTask = await test.manageTasksQueueService.findById(emailTaskId.get);
-    const videoTask = await test.manageTasksQueueService.findById(videoTaskId.get);
+    const emailTask = await test.manageTasksQueueService.findById(
+      emailTaskId.get,
+    );
+    const videoTask = await test.manageTasksQueueService.findById(
+      videoTaskId.get,
+    );
     expect(emailTask.isDefined).toBe(true);
     expect(emailTask.get.status).toBe(TaskStatus.pending);
     expect(emailTask.get.attempt).toBe(0);
@@ -461,11 +491,7 @@ describe("ManageTasksQueueService integration", () => {
       `insert into tasks_queue (
           queue, created, initial_start, status, attempt
         ) values ($1, $2, $2, $3, 0)`,
-      [
-        "video",
-        new Date("2026-04-07T10:04:00.000Z"),
-        TaskStatus.pending,
-      ],
+      ["video", new Date("2026-04-07T10:04:00.000Z"), TaskStatus.pending],
     );
 
     // Fetch management counters and latency stats to verify queue grouping and numeric mapping.
@@ -473,15 +499,17 @@ describe("ManageTasksQueueService integration", () => {
     const waitStats = await test.manageTasksQueueService.waitTimeByQueue();
     const workStats = await test.manageTasksQueueService.workTimeByQueue();
 
-    expect(counts.map((row) => [row.queueName, row.status, row.count]).toArray).toEqual([
+    expect(
+      counts.map((row) => [row.queueName, row.status, row.count]).toArray,
+    ).toEqual([
       ["email", TaskStatus.finished, 2],
       ["video", TaskStatus.pending, 1],
     ]);
-    expect(waitStats.map((row) => [row.queueName, row.p50, row.p95]).toArray).toEqual([
-      ["email", 10, 20],
-    ]);
-    expect(workStats.map((row) => [row.queueName, row.p50, row.p95]).toArray).toEqual([
-      ["email", 20, 60],
-    ]);
+    expect(
+      waitStats.map((row) => [row.queueName, row.p50, row.p95]).toArray,
+    ).toEqual([["email", 10, 20]]);
+    expect(
+      workStats.map((row) => [row.queueName, row.p50, row.p95]).toArray,
+    ).toEqual([["email", 20, 60]]);
   });
 });

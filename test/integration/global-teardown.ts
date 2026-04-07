@@ -1,20 +1,35 @@
 import fs from "fs";
 import path from "path";
 
-const stateFile = path.join(process.cwd(), "test", "integration", "global-setup.json");
+const stateFile = path.join(
+  process.cwd(),
+  "test",
+  "integration",
+  "global-setup.json",
+);
 
 export default async function globalTeardown() {
   try {
-    console.log("[integration:global-teardown] stopping postgres container");
+    process.stdout.write(
+      "[integration:global-teardown] stopping postgres container\n",
+    );
     const container = (global as any).__POSTGRES_CONTAINER__;
-    await container?.stop();
-    console.log("[integration:global-teardown] postgres container stopped");
+    if (container !== undefined && container !== null) {
+      await container.stop();
+    }
+    process.stdout.write(
+      "[integration:global-teardown] postgres container stopped\n",
+    );
   } finally {
     if (fs.existsSync(stateFile)) {
-      console.log("[integration:global-teardown] removing shared postgres state file");
+      process.stdout.write(
+        "[integration:global-teardown] removing shared postgres state file",
+      );
       fs.unlinkSync(stateFile);
-      console.log("[integration:global-teardown] shared postgres state file removed");
+      process.stdout.write(
+        "[integration:global-teardown] shared postgres state file removed",
+      );
     }
-    console.log("[integration:global-teardown] teardown completed");
+    process.stdout.write("[integration:global-teardown] teardown completed\n");
   }
 }

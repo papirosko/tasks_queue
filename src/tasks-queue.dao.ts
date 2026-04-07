@@ -138,7 +138,7 @@ export class TasksQueueDao {
             expectedStarted,
           ],
         );
-        if ((parentRes.rowCount ?? 0) !== 1) {
+        if (option(parentRes.rowCount).getOrElseValue(0) !== 1) {
           await cl.query("ROLLBACK");
           return none;
         }
@@ -275,12 +275,11 @@ export class TasksQueueDao {
     const placeholders = queueNames.zipWithIndex
       .map(([_, idx]) => `$${idx + 4}`)
       .mkString(",");
-    const paramsStatic: any[] = [
+    const params = Collection.of<any>(
       TaskStatus.in_progress,
       now,
       TaskStatus.pending,
-    ];
-    const params = paramsStatic.concat(queueNames.toArray);
+    ).appendedAll(queueNames.toArray).toArray;
 
     return await this.withClient(async (cl) => {
       const query = `
@@ -407,7 +406,7 @@ export class TasksQueueDao {
             and started = $4`,
         [now, taskId, TaskStatus.in_progress, expectedStarted],
       );
-      return (res.rowCount ?? 0) === 1;
+      return option(res.rowCount).getOrElseValue(0) === 1;
     });
   }
 
@@ -484,12 +483,12 @@ export class TasksQueueDao {
             : TaskStatus.error;
         const backoff = Number(row["backoff"]);
         const backoffType = String(row["backoff_type"]);
-        const retryDelay =
-          backoffType === "constant"
-            ? backoff
-            : backoffType === "linear"
-              ? backoff * Number(row["attempt"])
-              : backoff * Math.pow(2, Number(row["attempt"]) - 1);
+        let retryDelay = backoff * Math.pow(2, Number(row["attempt"]) - 1);
+        if (backoffType === "constant") {
+          retryDelay = backoff;
+        } else if (backoffType === "linear") {
+          retryDelay = backoff * Number(row["attempt"]);
+        }
 
         await cl.query(
           `update tasks_queue
@@ -562,8 +561,11 @@ export class TasksQueueDao {
       .map(([_, idx]) => `$${idx + 4}`)
       .mkString(",");
     return this.withClient(async (cl) => {
-      const paramsStatic: any[] = [TaskStatus.pending, TaskStatus.error, now];
-      const params = paramsStatic.concat(queueNames.toArray);
+      const params = Collection.of<any>(
+        TaskStatus.pending,
+        TaskStatus.error,
+        now,
+      ).appendedAll(queueNames.toArray).toArray;
       const res = await cl.query(
         `SELECT MIN(start_after) AS min_start
                  FROM tasks_queue
@@ -613,7 +615,7 @@ export class TasksQueueDao {
           option(expectedStarted).orNull,
         ],
       );
-      return (res.rowCount ?? 0) === 1;
+      return option(res.rowCount).getOrElseValue(0) === 1;
     });
   }
 

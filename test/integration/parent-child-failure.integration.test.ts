@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { MultiStepPayload } from "../../src/multi-step-payload.js";
 import { TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
@@ -69,8 +76,14 @@ describe("Parent-child failure integration", () => {
       VIDEO_PARENT_TASK_FAILED_QUEUE,
       new SequentialTaskFailedVideoWorker(),
     );
-    test.tasksQueueService.registerWorker(VIDEO_PARENT_QUEUE, new SequentialVideoWorker());
-    test.tasksQueueService.registerWorker(VIDEO_UPLOAD_QUEUE, new UploadVideoWorker());
+    test.tasksQueueService.registerWorker(
+      VIDEO_PARENT_QUEUE,
+      new SequentialVideoWorker(),
+    );
+    test.tasksQueueService.registerWorker(
+      VIDEO_UPLOAD_QUEUE,
+      new UploadVideoWorker(),
+    );
     test.tasksQueueService.registerWorker(
       VIDEO_TASK_FAILED_UPLOAD_QUEUE,
       new TaskFailedUploadWorker(),
@@ -104,13 +117,17 @@ describe("Parent-child failure integration", () => {
     await test.tasksQueueService.runOnce();
 
     // Confirm that parent is blocked on the child and has not consumed its own attempt budget.
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(0);
 
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // Start the child and fail the first attempt; retries are still available.
@@ -121,7 +138,8 @@ describe("Parent-child failure integration", () => {
     await firstChildRunPromise;
 
     // Validate that child was re-queued for retry while the parent remained blocked.
-    const retryingChild = await test.manageTasksQueueService.findById(childTaskId);
+    const retryingChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(retryingChild.isDefined).toBe(true);
     expect(retryingChild.get.status).toBe(TaskStatus.pending);
     expect(retryingChild.get.attempt).toBe(1);
@@ -130,7 +148,9 @@ describe("Parent-child failure integration", () => {
       new Date(baseTime.getTime() + TimeUtils.minute),
     );
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -138,7 +158,8 @@ describe("Parent-child failure integration", () => {
     // Poll before backoff expires; neither child retry nor parent wake-up should happen yet.
     await test.tasksQueueService.runOnce();
 
-    const blockedParentBeforeRetry = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParentBeforeRetry =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(blockedParentBeforeRetry.isDefined).toBe(true);
     expect(blockedParentBeforeRetry.get.status).toBe(TaskStatus.blocked);
     expect(blockedParentBeforeRetry.get.attempt).toBe(0);
@@ -152,13 +173,15 @@ describe("Parent-child failure integration", () => {
     await secondChildRunPromise;
 
     // Confirm that child is now terminally failed and parent has been woken back to pending.
-    const failedChild = await test.manageTasksQueueService.findById(childTaskId);
+    const failedChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(failedChild.isDefined).toBe(true);
     expect(failedChild.get.status).toBe(TaskStatus.error);
     expect(failedChild.get.attempt).toBe(2);
     expect(failedChild.get.error.orUndefined).toBe("boom");
 
-    const pendingParentAfterChildError = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterChildError =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterChildError.isDefined).toBe(true);
     expect(pendingParentAfterChildError.get.status).toBe(TaskStatus.pending);
     expect(pendingParentAfterChildError.get.attempt).toBe(0);
@@ -166,7 +189,9 @@ describe("Parent-child failure integration", () => {
     // Run the resumed parent; default SequentialTask behavior should fail it on child terminal error.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);
@@ -187,13 +212,17 @@ describe("Parent-child failure integration", () => {
     await test.tasksQueueService.runOnce();
 
     // Confirm that parent is blocked on the child and has not consumed its own attempt budget.
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(0);
 
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // Fail the first child attempt; retries are still available so parent must remain blocked.
@@ -203,13 +232,16 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(childTaskId);
     await firstChildRunPromise;
 
-    const retryingChild = await test.manageTasksQueueService.findById(childTaskId);
+    const retryingChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(retryingChild.isDefined).toBe(true);
     expect(retryingChild.get.status).toBe(TaskStatus.pending);
     expect(retryingChild.get.attempt).toBe(1);
     expect(retryingChild.get.error.orUndefined).toBe("boom");
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -222,14 +254,16 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(childTaskId, 2);
     await secondChildRunPromise;
 
-    const failedChild = await test.manageTasksQueueService.findById(childTaskId);
+    const failedChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(failedChild.isDefined).toBe(true);
     expect(failedChild.get.status).toBe(TaskStatus.error);
     expect(failedChild.get.attempt).toBe(2);
     expect(failedChild.get.error.orUndefined).toBe("boom");
 
     // Parent should wake to pending and remain ready to continue with the next step.
-    const pendingParentAfterChildError = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterChildError =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterChildError.isDefined).toBe(true);
     expect(pendingParentAfterChildError.get.status).toBe(TaskStatus.pending);
     expect(pendingParentAfterChildError.get.attempt).toBe(0);
@@ -237,7 +271,9 @@ describe("Parent-child failure integration", () => {
     // Run resumed parent; allowFailure should let workflow continue and finish successfully.
     await test.tasksQueueService.runOnce();
 
-    const finishedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const finishedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(finishedParent.isDefined).toBe(true);
     expect(finishedParent.get.status).toBe(TaskStatus.finished);
     expect(finishedParent.get.attempt).toBe(1);
@@ -269,19 +305,23 @@ describe("Parent-child failure integration", () => {
     // Run the parent once so it spawns the first successful child.
     await test.tasksQueueService.runOnce();
 
-    const blockedParentAfterFirstSpawn = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParentAfterFirstSpawn =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(blockedParentAfterFirstSpawn.isDefined).toBe(true);
     expect(blockedParentAfterFirstSpawn.get.status).toBe(TaskStatus.blocked);
     expect(blockedParentAfterFirstSpawn.get.attempt).toBe(0);
 
     const firstChildTaskId = Number(
-      (blockedParentAfterFirstSpawn.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParentAfterFirstSpawn.get.payload as Record<string, any>)[
+        "activeChild"
+      ]["taskId"],
     );
 
     // Run the first child to successful completion so parent can proceed to the second step.
     await test.tasksQueueService.runOnce();
 
-    const finishedFirstChild = await test.manageTasksQueueService.findById(firstChildTaskId);
+    const finishedFirstChild =
+      await test.manageTasksQueueService.findById(firstChildTaskId);
     expect(finishedFirstChild.isDefined).toBe(true);
     expect(finishedFirstChild.get.status).toBe(TaskStatus.finished);
     expect(finishedFirstChild.get.attempt).toBe(1);
@@ -290,7 +330,8 @@ describe("Parent-child failure integration", () => {
       path: "/videos/vid-101.mp4",
     });
 
-    const pendingParentForSecondChild = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentForSecondChild =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentForSecondChild.isDefined).toBe(true);
     expect(pendingParentForSecondChild.get.status).toBe(TaskStatus.pending);
     expect(pendingParentForSecondChild.get.attempt).toBe(0);
@@ -298,7 +339,8 @@ describe("Parent-child failure integration", () => {
     // Run parent again so it stores first-child result and spawns retryable second child.
     await test.tasksQueueService.runOnce();
 
-    const blockedParentAfterSecondSpawn = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParentAfterSecondSpawn =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(blockedParentAfterSecondSpawn.isDefined).toBe(true);
     expect(blockedParentAfterSecondSpawn.get.status).toBe(TaskStatus.blocked);
     expect(blockedParentAfterSecondSpawn.get.attempt).toBe(0);
@@ -319,9 +361,12 @@ describe("Parent-child failure integration", () => {
     });
 
     const secondChildTaskId = Number(
-      (blockedParentAfterSecondSpawn.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParentAfterSecondSpawn.get.payload as Record<string, any>)[
+        "activeChild"
+      ]["taskId"],
     );
-    const secondChildBeforeRun = await test.manageTasksQueueService.findById(secondChildTaskId);
+    const secondChildBeforeRun =
+      await test.manageTasksQueueService.findById(secondChildTaskId);
     expect(secondChildBeforeRun.isDefined).toBe(true);
     expect(secondChildBeforeRun.get.status).toBe(TaskStatus.pending);
     expect(secondChildBeforeRun.get.attempt).toBe(0);
@@ -336,7 +381,8 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(secondChildTaskId);
     await firstSecondChildRunPromise;
 
-    const retryingSecondChild = await test.manageTasksQueueService.findById(secondChildTaskId);
+    const retryingSecondChild =
+      await test.manageTasksQueueService.findById(secondChildTaskId);
     expect(retryingSecondChild.isDefined).toBe(true);
     expect(retryingSecondChild.get.status).toBe(TaskStatus.pending);
     expect(retryingSecondChild.get.attempt).toBe(1);
@@ -345,7 +391,9 @@ describe("Parent-child failure integration", () => {
       new Date(baseTime.getTime() + TimeUtils.minute),
     );
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -373,15 +421,19 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(secondChildTaskId, 2);
     await secondSecondChildRunPromise;
 
-    const failedSecondChild = await test.manageTasksQueueService.findById(secondChildTaskId);
+    const failedSecondChild =
+      await test.manageTasksQueueService.findById(secondChildTaskId);
     expect(failedSecondChild.isDefined).toBe(true);
     expect(failedSecondChild.get.status).toBe(TaskStatus.error);
     expect(failedSecondChild.get.attempt).toBe(2);
     expect(failedSecondChild.get.error.orUndefined).toBe("boom");
 
-    const pendingParentAfterSecondChildError = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterSecondChildError =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterSecondChildError.isDefined).toBe(true);
-    expect(pendingParentAfterSecondChildError.get.status).toBe(TaskStatus.pending);
+    expect(pendingParentAfterSecondChildError.get.status).toBe(
+      TaskStatus.pending,
+    );
     expect(pendingParentAfterSecondChildError.get.attempt).toBe(0);
     expect(pendingParentAfterSecondChildError.get.payload).toEqual({
       workflowPayload: {
@@ -402,7 +454,9 @@ describe("Parent-child failure integration", () => {
     // Run the resumed parent; default behavior should now fail parent on the terminal second-child error.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);
@@ -437,19 +491,23 @@ describe("Parent-child failure integration", () => {
     // Run the parent once so it spawns the first successful child.
     await test.tasksQueueService.runOnce();
 
-    const blockedParentAfterFirstSpawn = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParentAfterFirstSpawn =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(blockedParentAfterFirstSpawn.isDefined).toBe(true);
     expect(blockedParentAfterFirstSpawn.get.status).toBe(TaskStatus.blocked);
     expect(blockedParentAfterFirstSpawn.get.attempt).toBe(0);
 
     const firstChildTaskId = Number(
-      (blockedParentAfterFirstSpawn.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParentAfterFirstSpawn.get.payload as Record<string, any>)[
+        "activeChild"
+      ]["taskId"],
     );
 
     // Complete the first child so parent can move to the second step.
     await test.tasksQueueService.runOnce();
 
-    const finishedFirstChild = await test.manageTasksQueueService.findById(firstChildTaskId);
+    const finishedFirstChild =
+      await test.manageTasksQueueService.findById(firstChildTaskId);
     expect(finishedFirstChild.isDefined).toBe(true);
     expect(finishedFirstChild.get.status).toBe(TaskStatus.finished);
     expect(finishedFirstChild.get.attempt).toBe(1);
@@ -461,7 +519,8 @@ describe("Parent-child failure integration", () => {
     // Resume parent so it persists first-child result and spawns allow-failure second child.
     await test.tasksQueueService.runOnce();
 
-    const blockedParentAfterSecondSpawn = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParentAfterSecondSpawn =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(blockedParentAfterSecondSpawn.isDefined).toBe(true);
     expect(blockedParentAfterSecondSpawn.get.status).toBe(TaskStatus.blocked);
     expect(blockedParentAfterSecondSpawn.get.attempt).toBe(0);
@@ -483,7 +542,9 @@ describe("Parent-child failure integration", () => {
     });
 
     const secondChildTaskId = Number(
-      (blockedParentAfterSecondSpawn.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParentAfterSecondSpawn.get.payload as Record<string, any>)[
+        "activeChild"
+      ]["taskId"],
     );
 
     // Fail the first second-child attempt; parent must remain blocked while child retries.
@@ -493,13 +554,16 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(secondChildTaskId);
     await firstSecondChildRunPromise;
 
-    const retryingSecondChild = await test.manageTasksQueueService.findById(secondChildTaskId);
+    const retryingSecondChild =
+      await test.manageTasksQueueService.findById(secondChildTaskId);
     expect(retryingSecondChild.isDefined).toBe(true);
     expect(retryingSecondChild.get.status).toBe(TaskStatus.pending);
     expect(retryingSecondChild.get.attempt).toBe(1);
     expect(retryingSecondChild.get.error.orUndefined).toBe("boom");
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -512,21 +576,27 @@ describe("Parent-child failure integration", () => {
     await bus.waitForFailed(secondChildTaskId, 2);
     await secondSecondChildRunPromise;
 
-    const failedSecondChild = await test.manageTasksQueueService.findById(secondChildTaskId);
+    const failedSecondChild =
+      await test.manageTasksQueueService.findById(secondChildTaskId);
     expect(failedSecondChild.isDefined).toBe(true);
     expect(failedSecondChild.get.status).toBe(TaskStatus.error);
     expect(failedSecondChild.get.attempt).toBe(2);
     expect(failedSecondChild.get.error.orUndefined).toBe("boom");
 
-    const pendingParentAfterSecondChildError = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterSecondChildError =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterSecondChildError.isDefined).toBe(true);
-    expect(pendingParentAfterSecondChildError.get.status).toBe(TaskStatus.pending);
+    expect(pendingParentAfterSecondChildError.get.status).toBe(
+      TaskStatus.pending,
+    );
     expect(pendingParentAfterSecondChildError.get.attempt).toBe(0);
 
     // Run resumed parent; allowFailure should let the workflow finish and capture child error details.
     await test.tasksQueueService.runOnce();
 
-    const finishedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const finishedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(finishedParent.isDefined).toBe(true);
     expect(finishedParent.get.status).toBe(TaskStatus.finished);
     expect(finishedParent.get.attempt).toBe(1);
@@ -566,13 +636,17 @@ describe("Parent-child failure integration", () => {
     // Run parent once so it spawns a child with timeout and enters blocked state.
     await test.tasksQueueService.runOnce();
 
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(0);
 
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // Start the child and leave it hanging so timeout detection drives the transition.
@@ -584,7 +658,8 @@ describe("Parent-child failure integration", () => {
     const firstStalled = await test.tasksQueueDao.failStalled(clock.now());
     expect(firstStalled.toArray).toEqual([childTaskId]);
 
-    const retryingChild = await test.manageTasksQueueService.findById(childTaskId);
+    const retryingChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(retryingChild.isDefined).toBe(true);
     expect(retryingChild.get.status).toBe(TaskStatus.pending);
     expect(retryingChild.get.attempt).toBe(1);
@@ -593,7 +668,9 @@ describe("Parent-child failure integration", () => {
       new Date(baseTime.getTime() + TimeUtils.second + 1 + TimeUtils.minute),
     );
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -608,13 +685,15 @@ describe("Parent-child failure integration", () => {
     const secondStalled = await test.tasksQueueDao.failStalled(clock.now());
     expect(secondStalled.toArray).toEqual([childTaskId]);
 
-    const failedChild = await test.manageTasksQueueService.findById(childTaskId);
+    const failedChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(failedChild.isDefined).toBe(true);
     expect(failedChild.get.status).toBe(TaskStatus.error);
     expect(failedChild.get.attempt).toBe(2);
     expect(failedChild.get.error.orUndefined).toBe("Timeout");
 
-    const pendingParentAfterTimeout = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterTimeout =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterTimeout.isDefined).toBe(true);
     expect(pendingParentAfterTimeout.get.status).toBe(TaskStatus.pending);
     expect(pendingParentAfterTimeout.get.attempt).toBe(0);
@@ -622,7 +701,9 @@ describe("Parent-child failure integration", () => {
     // Resume parent; default behavior should fail it on terminal child timeout.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);
@@ -642,19 +723,24 @@ describe("Parent-child failure integration", () => {
     // Run the parent once so it spawns the successful child and enters blocked state.
     await test.tasksQueueService.runOnce();
 
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(0);
 
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // Run the child to successful completion so parent wakes up for the next step.
     await test.tasksQueueService.runOnce();
 
-    const finishedChild = await test.manageTasksQueueService.findById(childTaskId);
+    const finishedChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(finishedChild.isDefined).toBe(true);
     expect(finishedChild.get.status).toBe(TaskStatus.finished);
     expect(finishedChild.get.attempt).toBe(1);
@@ -663,7 +749,8 @@ describe("Parent-child failure integration", () => {
       path: "/videos/vid-104.mp4",
     });
 
-    const pendingParentAfterChildSuccess = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterChildSuccess =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterChildSuccess.isDefined).toBe(true);
     expect(pendingParentAfterChildSuccess.get.status).toBe(TaskStatus.pending);
     expect(pendingParentAfterChildSuccess.get.attempt).toBe(0);
@@ -671,7 +758,9 @@ describe("Parent-child failure integration", () => {
     // Resume the parent; the next step should crash inside the parent itself.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);
@@ -702,19 +791,24 @@ describe("Parent-child failure integration", () => {
     // Run the parent once so it spawns a retryable child and enters blocked state.
     await test.tasksQueueService.runOnce();
 
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(0);
 
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // Run the child once; it should throw TaskFailed and replace its payload for retry.
     await test.tasksQueueService.runOnce();
 
-    const retryingChild = await test.manageTasksQueueService.findById(childTaskId);
+    const retryingChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(retryingChild.isDefined).toBe(true);
     expect(retryingChild.get.status).toBe(TaskStatus.pending);
     expect(retryingChild.get.attempt).toBe(1);
@@ -727,7 +821,9 @@ describe("Parent-child failure integration", () => {
       new Date(baseTime.getTime() + TimeUtils.minute),
     );
 
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
     expect(stillBlockedParent.get.attempt).toBe(0);
@@ -736,7 +832,8 @@ describe("Parent-child failure integration", () => {
     clock.advance(TimeUtils.minute + 1);
     await test.tasksQueueService.runOnce();
 
-    const finishedChild = await test.manageTasksQueueService.findById(childTaskId);
+    const finishedChild =
+      await test.manageTasksQueueService.findById(childTaskId);
     expect(finishedChild.isDefined).toBe(true);
     expect(finishedChild.get.status).toBe(TaskStatus.finished);
     expect(finishedChild.get.attempt).toBe(2);
@@ -750,7 +847,8 @@ describe("Parent-child failure integration", () => {
       retried: true,
     });
 
-    const pendingParentAfterChildSuccess = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParentAfterChildSuccess =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(pendingParentAfterChildSuccess.isDefined).toBe(true);
     expect(pendingParentAfterChildSuccess.get.status).toBe(TaskStatus.pending);
     expect(pendingParentAfterChildSuccess.get.attempt).toBe(0);
@@ -758,7 +856,9 @@ describe("Parent-child failure integration", () => {
     // Resume parent; it should consume the child result and finish successfully.
     await test.tasksQueueService.runOnce();
 
-    const finishedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const finishedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(finishedParent.isDefined).toBe(true);
     expect(finishedParent.get.status).toBe(TaskStatus.finished);
     expect(finishedParent.get.attempt).toBe(1);
@@ -806,7 +906,9 @@ describe("Parent-child failure integration", () => {
     // Run the parent with a broken activeChild reference; resume should fail immediately.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);
@@ -856,7 +958,9 @@ describe("Parent-child failure integration", () => {
     // Run the parent with an existing but non-terminal child reference; resume should fail explicitly.
     await test.tasksQueueService.runOnce();
 
-    const failedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const failedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(failedParent.isDefined).toBe(true);
     expect(failedParent.get.status).toBe(TaskStatus.error);
     expect(failedParent.get.attempt).toBe(1);

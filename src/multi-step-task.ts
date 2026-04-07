@@ -244,9 +244,9 @@ export abstract class MultiStepTask<
     _context: TaskContext,
     _activeChild: ActiveChildState,
   ): Promise<void> {
-    throw new Error(
-      `Child task ${childTask.id} failed: ${childTask.error ?? "Unknown error"}`,
-    );
+    const childError =
+      childTask.error === undefined ? "Unknown error" : childTask.error;
+    throw new Error(`Child task ${childTask.id} failed: ${childError}`);
   }
 
   override async process(

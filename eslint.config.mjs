@@ -1,9 +1,14 @@
 // eslint.config.js
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import js from '@eslint/js';
 import typescriptEslint from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import prettier from 'eslint-plugin-prettier';
+import scats from 'eslint-plugin-scats';
 import prettierConfig from 'eslint-config-prettier';
+
+const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default [
     js.configs.recommended,
@@ -16,6 +21,7 @@ export default [
             parser: tsParser,
             parserOptions: {
                 project: './tsconfig-eslint.json',
+                tsconfigRootDir,
                 sourceType: 'module',
             },
             globals: {
@@ -35,9 +41,11 @@ export default [
         plugins: {
             '@typescript-eslint': typescriptEslint,
             prettier: prettier,
+            scats: scats,
         },
         rules: {
             ...typescriptEslint.configs.recommended.rules,
+            ...scats.configs.strict.rules,
             ...prettierConfig.rules,
             'prettier/prettier': 'error',
 
@@ -70,6 +78,7 @@ export default [
             parser: tsParser,
             parserOptions: {
                 project: './tsconfig-eslint.json',
+                tsconfigRootDir,
                 sourceType: 'module',
             },
             globals: {
@@ -87,14 +96,18 @@ export default [
                 it: 'readonly',
                 test: 'readonly',
                 expect: 'readonly',
+                beforeAll: 'readonly',
+                afterAll: 'readonly',
             },
         },
         plugins: {
             '@typescript-eslint': typescriptEslint,
             prettier: prettier,
+            scats: scats,
         },
         rules: {
             ...typescriptEslint.configs.recommended.rules,
+            ...scats.configs.strict.rules,
             ...prettierConfig.rules,
             'prettier/prettier': 'error',
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import { Collection, none, some } from "scats";
+import { Collection, mutable, none, some } from "scats";
 import { ActiveChildState } from "../src/active-child-state.js";
 import { MultiStepPayload } from "../src/multi-step-payload.js";
 import { SequentialTask } from "../src/sequential-task.js";
@@ -39,7 +39,7 @@ class ContextAwareSequentialTask extends SequentialTask<
   "scan" | "encode" | "metadata",
   VideoPayload
 > {
-  readonly seenResolvedChildStatuses: string[] = [];
+  readonly seenResolvedChildStatuses = new mutable.ArrayBuffer<string>();
 
   constructor() {
     super(Collection.of("scan", "encode", "metadata"));
@@ -52,7 +52,7 @@ class ContextAwareSequentialTask extends SequentialTask<
   ): Promise<void> {
     if (step === "encode") {
       context.resolvedChildTask.foreach((childTask) => {
-        this.seenResolvedChildStatuses.push(childTask.status);
+        this.seenResolvedChildStatuses.append(childTask.status);
       });
     }
   }
@@ -300,6 +300,6 @@ describe("SequentialTask", () => {
       context,
     );
 
-    expect(task.seenResolvedChildStatuses).toEqual(["finished"]);
+    expect(task.seenResolvedChildStatuses.toArray).toEqual(["finished"]);
   });
 });

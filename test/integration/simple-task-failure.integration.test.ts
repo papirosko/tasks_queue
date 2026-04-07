@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
@@ -112,7 +119,9 @@ describe("Simple task failure integration", () => {
     await firstRunPromise;
 
     // Reload the task and verify that it moved back to pending with retry metadata persisted.
-    const pendingRetryTask = await test.manageTasksQueueService.findById(taskId.get);
+    const pendingRetryTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(pendingRetryTask.isDefined).toBe(true);
     expect(pendingRetryTask.get.status).toBe(TaskStatus.pending);
     expect(pendingRetryTask.get.attempt).toBe(1);
@@ -173,7 +182,9 @@ describe("Simple task failure integration", () => {
     await runPromise;
 
     // Confirm that retry scheduling clears submitted result so the next attempt starts clean.
-    const pendingRetryTask = await test.manageTasksQueueService.findById(taskId.get);
+    const pendingRetryTask = await test.manageTasksQueueService.findById(
+      taskId.get,
+    );
     expect(pendingRetryTask.isDefined).toBe(true);
     expect(pendingRetryTask.get.status).toBe(TaskStatus.pending);
     expect(pendingRetryTask.get.payload).toEqual(payload);

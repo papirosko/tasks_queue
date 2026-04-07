@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
 import { mutable } from "scats";
 import { MultiStepPayload } from "../../src/multi-step-payload.js";
 import { TaskContext, TaskStatus } from "../../src/tasks-model.js";
@@ -6,22 +13,24 @@ import { TimeUtils } from "../../src/time-utils.js";
 import { TasksWorker } from "../../src/tasks-worker.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ManualClock } from "./support/manual-clock.js";
-import { TestTaskEventType, TestTaskEventsBus } from "./support/task-events-bus.js";
+import {
+  TestTaskEventType,
+  TestTaskEventsBus,
+} from "./support/task-events-bus.js";
 
 class QueueIntegrationTest extends BaseIntegrationTest {}
 
 class ParentRaceWorker extends TasksWorker {
-  private readonly executions =
-    new mutable.HashMap<
-      number,
-      mutable.ArrayBuffer<{
-        context: TaskContext;
-        deferred: {
-          promise: Promise<void>;
-          resolve: () => void;
-        };
-      }>
-    >();
+  private readonly executions = new mutable.HashMap<
+    number,
+    mutable.ArrayBuffer<{
+      context: TaskContext;
+      deferred: {
+        promise: Promise<void>;
+        resolve: () => void;
+      };
+    }>
+  >();
 
   constructor(private readonly bus: TestTaskEventsBus) {
     super();
@@ -77,16 +86,15 @@ class RetryingChildParentWorker extends TasksWorker {
 }
 
 class MultiExecutionChildWorker extends TasksWorker {
-  private readonly executions =
-    new mutable.HashMap<
-      number,
-      mutable.ArrayBuffer<{
-        deferred: {
-          promise: Promise<void>;
-          resolve: () => void;
-        };
-      }>
-    >();
+  private readonly executions = new mutable.HashMap<
+    number,
+    mutable.ArrayBuffer<{
+      deferred: {
+        promise: Promise<void>;
+        resolve: () => void;
+      };
+    }>
+  >();
 
   constructor(private readonly bus: TestTaskEventsBus) {
     super();
@@ -110,7 +118,10 @@ class MultiExecutionChildWorker extends TasksWorker {
   }
 
   complete(taskId: number, occurrence: number = 1): void {
-    this.executions.get(taskId).get.get(occurrence - 1).deferred.resolve();
+    this.executions
+      .get(taskId)
+      .get.get(occurrence - 1)
+      .deferred.resolve();
   }
 
   reset(): void {
@@ -176,9 +187,8 @@ describe("Parent-child race integration", () => {
     parentWorker.complete(parentTaskId.get, 1);
     await firstRun;
 
-    const parentAfterStaleCompletion = await test.manageTasksQueueService.findById(
-      parentTaskId.get,
-    );
+    const parentAfterStaleCompletion =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(parentAfterStaleCompletion.isDefined).toBe(true);
     expect(parentAfterStaleCompletion.get.status).toBe(TaskStatus.in_progress);
     expect(parentAfterStaleCompletion.get.attempt).toBe(2);
@@ -195,7 +205,9 @@ describe("Parent-child race integration", () => {
     parentWorker.complete(parentTaskId.get, 2);
     await secondRun;
 
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     expect(blockedParent.get.attempt).toBe(1);
@@ -225,7 +237,8 @@ describe("Parent-child race integration", () => {
   it("does not let a stale child attempt wake the blocked parent", async () => {
     const parentTaskId = await test.tasksQueueService.schedule({
       queue: "parent-child-race",
-      payload: MultiStepPayload.forUserPayload({ videoId: "vid-child-race" }).toJson,
+      payload: MultiStepPayload.forUserPayload({ videoId: "vid-child-race" })
+        .toJson,
       retries: 1,
       timeout: TimeUtils.minute,
     });
@@ -234,11 +247,15 @@ describe("Parent-child race integration", () => {
 
     // Parent spawns retryable child and becomes blocked.
     await test.tasksQueueService.runOnce();
-    const blockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const blockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(blockedParent.isDefined).toBe(true);
     expect(blockedParent.get.status).toBe(TaskStatus.blocked);
     const childTaskId = Number(
-      (blockedParent.get.payload as Record<string, any>)["activeChild"]["taskId"],
+      (blockedParent.get.payload as Record<string, any>)["activeChild"][
+        "taskId"
+      ],
     );
 
     // First child attempt stalls and moves child back to pending while parent stays blocked.
@@ -247,7 +264,9 @@ describe("Parent-child race integration", () => {
     clock.advance(TimeUtils.second + 1);
     const stalled = await test.tasksQueueDao.failStalled(clock.now());
     expect(stalled.toArray).toEqual([childTaskId]);
-    const stillBlockedParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const stillBlockedParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(stillBlockedParent.isDefined).toBe(true);
     expect(stillBlockedParent.get.status).toBe(TaskStatus.blocked);
 
@@ -258,16 +277,17 @@ describe("Parent-child race integration", () => {
     // Stale first child completion must not wake parent.
     childWorker.complete(childTaskId, 1);
     await firstChildRun;
-    const parentAfterStaleChildCompletion = await test.manageTasksQueueService.findById(
-      parentTaskId.get,
-    );
+    const parentAfterStaleChildCompletion =
+      await test.manageTasksQueueService.findById(parentTaskId.get);
     expect(parentAfterStaleChildCompletion.isDefined).toBe(true);
     expect(parentAfterStaleChildCompletion.get.status).toBe(TaskStatus.blocked);
 
     // Current child attempt completes and only then parent may wake.
     childWorker.complete(childTaskId, 2);
     await secondChildRun;
-    const pendingParent = await test.manageTasksQueueService.findById(parentTaskId.get);
+    const pendingParent = await test.manageTasksQueueService.findById(
+      parentTaskId.get,
+    );
     expect(pendingParent.isDefined).toBe(true);
     expect(pendingParent.get.status).toBe(TaskStatus.pending);
   });
