@@ -11,6 +11,7 @@ import { TasksQueueWorker } from "../src/tasks-queue.worker.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
 import { Clock } from "../src/clock.js";
+import { TimeUtils } from "../src/time-utils.js";
 
 jest.mock("application-metrics", () => ({
   MetricsService: {
@@ -37,8 +38,10 @@ class TestWorker extends TasksWorker {
 
 const createTask = (overrides: Partial<ScheduledTask> = {}): ScheduledTask => ({
   id: 1,
+  started: new Date(),
   queue: "q",
   payload: { foo: "bar" },
+  timeout: TimeUtils.hour,
   currentAttempt: 1,
   maxAttempts: 3,
   ...overrides,
@@ -48,12 +51,13 @@ const createDao = (overrides: Record<string, any> = {}) => ({
   nextPending: jest.fn(async () => none),
   peekNextStartAfter: jest.fn(async () => none),
   findTaskState: jest.fn(async () => none),
-  ping: jest.fn(async () => undefined),
-  finish: jest.fn(async () => undefined),
-  blockParentAndScheduleChild: jest.fn(async () => undefined),
-  rescheduleIfPeriodic: jest.fn(async () => undefined),
+  ping: jest.fn(async () => true),
+  finish: jest.fn(async () => true),
+  blockParentAndScheduleChild: jest.fn(async () => some(2)),
+  rescheduleIfPeriodic: jest.fn(async () => true),
   wakeParentOnChildTerminal: jest.fn(async () => none),
-  fail: jest.fn(async () => TaskStatus.pending),
+  fail: jest.fn(async () => some(TaskStatus.pending)),
+  failIfStalled: jest.fn(async () => none),
   ...overrides,
 });
 
@@ -68,14 +72,16 @@ describe("TasksQueueWorker", () => {
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(taskWorker.process).toHaveBeenCalled();
     expect(dao.finish).toHaveBeenCalledWith(
       1,
       { foo: "bar" },
       undefined,
+      task.started,
       expect.any(Date),
     );
     expect(dao.rescheduleIfPeriodic).not.toHaveBeenCalled();
@@ -87,15 +93,15 @@ describe("TasksQueueWorker", () => {
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
     worker.registerWorker("q", taskWorker);
+    const task = createTask({ repeatType: TaskPeriodType.fixed_rate });
 
-    await (worker as any).processNextTask(
-      createTask({ repeatType: TaskPeriodType.fixed_rate }),
-    );
+    await (worker as any).processNextTask(task);
 
     expect(dao.rescheduleIfPeriodic).toHaveBeenCalledWith(
       1,
       { foo: "bar" },
       undefined,
+      task.started,
       expect.any(Date),
     );
     expect(dao.finish).not.toHaveBeenCalled();
@@ -110,14 +116,16 @@ describe("TasksQueueWorker", () => {
       throw new TaskFailed("failed", { replace: true });
     });
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.fail).toHaveBeenCalledWith(
       1,
       "failed",
       { replace: true },
       undefined,
+      task.started,
       expect.any(Date),
     );
   });
@@ -132,20 +140,22 @@ describe("TasksQueueWorker", () => {
       },
     );
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.finish).toHaveBeenCalledWith(
       1,
       { foo: "bar" },
       { ok: true },
+      task.started,
       expect.any(Date),
     );
   });
 
   it("passes submitted result into terminal failure flow", async () => {
     const dao = createDao({
-      fail: jest.fn(async () => TaskStatus.error),
+      fail: jest.fn(async () => some(TaskStatus.error)),
     });
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
@@ -156,14 +166,16 @@ describe("TasksQueueWorker", () => {
       },
     );
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.fail).toHaveBeenCalledWith(
       1,
       "boom",
       { foo: "bar" },
       { partial: true },
+      task.started,
       expect.any(Date),
     );
   });
@@ -177,8 +189,9 @@ describe("TasksQueueWorker", () => {
       throw new Error("callback failure");
     });
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.finish).toHaveBeenCalled();
   });
@@ -198,7 +211,7 @@ describe("TasksQueueWorker", () => {
 
   it("blocks parent and schedules child when process requests spawnChild", async () => {
     const dao = createDao({
-      blockParentAndScheduleChild: jest.fn(async () => 2),
+      blockParentAndScheduleChild: jest.fn(async () => some(2)),
     });
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
@@ -209,8 +222,9 @@ describe("TasksQueueWorker", () => {
     );
     worker.registerWorker("q", taskWorker);
     worker.registerWorker("child-q", new TestWorker());
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.blockParentAndScheduleChild).toHaveBeenCalledWith(
       1,
@@ -219,6 +233,7 @@ describe("TasksQueueWorker", () => {
         payload: { child: true },
       },
       { foo: "bar" },
+      task.started,
       expect.any(Date),
     );
     expect(dao.finish).not.toHaveBeenCalled();
@@ -233,8 +248,9 @@ describe("TasksQueueWorker", () => {
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     worker.registerWorker("q", new TestWorker());
     worker.registerWorker("parent-q", new TestWorker());
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
     expect(dao.wakeParentOnChildTerminal).toHaveBeenCalledWith(
       1,
@@ -244,7 +260,7 @@ describe("TasksQueueWorker", () => {
 
   it("wakes blocked parent only on terminal child failure", async () => {
     const dao = createDao({
-      fail: jest.fn(async () => TaskStatus.error),
+      fail: jest.fn(async () => some(TaskStatus.error)),
     });
     const worker = new TasksQueueWorker(dao as any, 1, 10);
     const taskWorker = new TestWorker();
@@ -271,18 +287,22 @@ describe("TasksQueueWorker", () => {
       },
     );
     worker.registerWorker("q", taskWorker);
+    const task = createTask();
 
-    await (worker as any).processNextTask(createTask());
+    await (worker as any).processNextTask(task);
 
-    expect(dao.ping).toHaveBeenCalledWith(1, expect.any(Date));
+    expect(dao.ping).toHaveBeenCalledWith(
+      1,
+      task.started,
+      expect.any(Date),
+    );
   });
 
   it("throttles repeated context.ping() calls in runtime", async () => {
-    const nowValues = [
-      1_000,
-      1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1,
-      1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1,
-    ];
+    const t0 = 1_000;
+    const t1 = 1_000 + TASK_HEARTBEAT_THROTTLE_MS - 1;
+    const t2 = 1_000 + TASK_HEARTBEAT_THROTTLE_MS + 1;
+    const nowValues = [t0, t0, t0, t0, t1, t1, t2, t2, t2];
     const clock: Clock = {
       now: jest.fn(() => new Date(nowValues.shift() ?? 0)),
     };
@@ -301,5 +321,97 @@ describe("TasksQueueWorker", () => {
     await (worker as any).processNextTask(createTask());
 
     expect(dao.ping).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails the task when process returns after the timeout window", async () => {
+    const nowValues = [new Date(TimeUtils.second + 1)];
+    const clock: Clock = {
+      now: () => nowValues.shift() ?? new Date(TimeUtils.second + 1),
+    };
+    const dao = createDao({
+      failIfStalled: jest.fn(async () => some(TaskStatus.error)),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
+    const taskWorker = new TestWorker();
+    worker.registerWorker("q", taskWorker);
+    const task = createTask({ timeout: TimeUtils.second, started: new Date(0) });
+
+    await (worker as any).processNextTask(task);
+
+    expect(dao.failIfStalled).toHaveBeenCalledWith(
+      1,
+      task.started,
+      new Date(TimeUtils.second + 1),
+    );
+    expect(dao.finish).not.toHaveBeenCalled();
+    expect(taskWorker.completed).not.toHaveBeenCalled();
+    expect(taskWorker.failed).toHaveBeenCalledWith(
+      1,
+      { foo: "bar" },
+      TaskStatus.error,
+      expect.objectContaining({
+        message: expect.stringContaining("timed out"),
+      }),
+    );
+    expect(dao.fail).not.toHaveBeenCalled();
+  });
+
+  it("throws from context.ping when the task is already stalled", async () => {
+    const nowValues = [new Date(TimeUtils.second + 1)];
+    const clock: Clock = {
+      now: () => nowValues.shift() ?? new Date(TimeUtils.second + 1),
+    };
+    const dao = createDao({
+      failIfStalled: jest.fn(async () => some(TaskStatus.error)),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        await context.ping();
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+    const task = createTask({ timeout: TimeUtils.second, started: new Date(0) });
+
+    await (worker as any).processNextTask(task);
+
+    expect(dao.failIfStalled).toHaveBeenCalledWith(
+      1,
+      task.started,
+      new Date(TimeUtils.second + 1),
+    );
+    expect(dao.ping).not.toHaveBeenCalled();
+    expect(taskWorker.failed).toHaveBeenCalledWith(
+      1,
+      { foo: "bar" },
+      TaskStatus.error,
+      expect.objectContaining({
+        message: expect.stringContaining("timed out"),
+      }),
+    );
+    expect(dao.fail).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke completed callback when finish loses ownership by started timestamp", async () => {
+    const dao = createDao({
+      finish: jest.fn(async () => false),
+    });
+    const worker = new TasksQueueWorker(dao as any, 1, 10);
+    const taskWorker = new TestWorker();
+    worker.registerWorker("q", taskWorker);
+    const task = createTask();
+
+    await (worker as any).processNextTask(task);
+
+    expect(dao.finish).toHaveBeenCalledWith(
+      1,
+      { foo: "bar" },
+      undefined,
+      task.started,
+      expect.any(Date),
+    );
+    expect(taskWorker.completed).not.toHaveBeenCalled();
+    expect(taskWorker.failed).not.toHaveBeenCalled();
   });
 });

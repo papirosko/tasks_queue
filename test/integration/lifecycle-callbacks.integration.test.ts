@@ -107,4 +107,41 @@ describe("Lifecycle callbacks integration", () => {
       },
     ]);
   });
+
+  it("treats successful completion after timeout as a failed retryable attempt", async () => {
+    const payload = { userId: 42 };
+    const taskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload,
+      retries: 2,
+      timeout: TimeUtils.second,
+      backoff: TimeUtils.minute,
+    });
+
+    // Start the task, let the timeout window expire, then resolve process() without heartbeat.
+    const runPromise = test.tasksQueueService.runOnce();
+    await bus.waitForStarted(taskId.get);
+    clock.advance(TimeUtils.second + 1);
+    worker.complete(taskId.get, { ok: true });
+    await bus.waitForFailed(taskId.get);
+    await runPromise;
+
+    // Completion callback must not run because timeout turns the attempt into a normal failure path.
+    expect(worker.completedCalls.toArray).toEqual([]);
+    expect(worker.failedCalls.toArray).toEqual([
+      {
+        taskId: taskId.get,
+        payload,
+        finalStatus: TaskStatus.pending,
+        error: `Task ${taskId.get} timed out before liveness was refreshed`,
+      },
+    ]);
+
+    // Reload the task to confirm that timeout failure metadata is persisted for retry.
+    const task = await test.manageTasksQueueService.findById(taskId.get);
+    expect(task.isDefined).toBe(true);
+    expect(task.get.status).toBe(TaskStatus.pending);
+    expect(task.get.error.orUndefined).toBe("Timeout");
+    expect(task.get.result).toBeNull();
+  });
 });

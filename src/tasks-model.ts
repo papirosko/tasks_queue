@@ -174,6 +174,13 @@ export interface ScheduledTask {
    */
   id: number;
   /**
+   * The exact `started` timestamp of the currently owned processing attempt.
+   *
+   * Runtime transitions must use this value to ensure that only the worker
+   * which fetched the current attempt may heartbeat or resolve it.
+   */
+  started: Date;
+  /**
    * Parent task id if this task was spawned by another task.
    */
   parentId?: number;
@@ -189,6 +196,7 @@ export interface ScheduledTask {
    * The period type for the periodic tasks. Not set for regular task.
    */
   repeatType?: TaskPeriodType;
+  timeout: number;
 
   currentAttempt: number;
   maxAttempts: number;
@@ -237,6 +245,21 @@ export class TaskFailed extends Error {
   }
 }
 
+/**
+ * Raised when the current processing attempt is already considered stalled by the queue timeout contract.
+ *
+ * This means the worker either reported heartbeat too late or returned from `process(...)`
+ * after the timeout window had already elapsed for the current persisted heartbeat/start time.
+ */
+export class TaskTimedOutError extends Error {
+  constructor(
+    readonly taskId: number,
+    readonly finalStatus: TaskStatus,
+  ) {
+    super(`Task ${taskId} timed out before liveness was refreshed`);
+  }
+}
+
 export interface TaskContext {
   /**
    * Current task id in persistent storage.
@@ -263,6 +286,9 @@ export interface TaskContext {
    * during long-running processing.
    *
    * Frequent repeated calls are throttled by the runtime and persistence layer.
+   *
+   * Throws `TaskTimedOutError` if the current attempt has already exceeded the
+   * timeout window since the last persisted liveness point.
    */
   ping(): Promise<void>;
   /**

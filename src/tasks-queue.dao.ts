@@ -1,4 +1,4 @@
-import { Collection, HashSet, none, option, Option } from "scats";
+import { Collection, HashSet, none, option, Option, some } from "scats";
 import pg, { PoolClient } from "pg";
 import type {
   ScheduleCronTaskDetails,
@@ -112,6 +112,7 @@ export class TasksQueueDao {
     parentTaskId: number,
     childTask: SpawnChildTaskDetails,
     parentPayload: object,
+    expectedStarted: Date,
     now: Date = new Date(),
   ): Promise<Option<number>> {
     return await this.withClient(async (cl) => {
@@ -127,14 +128,19 @@ export class TasksQueueDao {
                    error = null
              where id = $2
                and status = $3
+               and started = $4
                and repeat_type is null
              returning id`,
-          [TaskStatus.blocked, parentTaskId, TaskStatus.in_progress],
+          [
+            TaskStatus.blocked,
+            parentTaskId,
+            TaskStatus.in_progress,
+            expectedStarted,
+          ],
         );
         if ((parentRes.rowCount ?? 0) !== 1) {
-          throw new Error(
-            `Failed to block parent task ${parentTaskId} for child scheduling`,
-          );
+          await cl.query("ROLLBACK");
+          return none;
         }
 
         const childTaskId = await this.insertOneTimeTask(
@@ -297,11 +303,13 @@ export class TasksQueueDao {
                 FROM selected
                 WHERE tasks_queue.id = selected.id
                 RETURNING 
-                    tasks_queue.id, 
+                    tasks_queue.id,
+                    tasks_queue.started,
                     tasks_queue.parent_id,
                     tasks_queue.payload, 
                     tasks_queue.queue,
                     tasks_queue.repeat_type,
+                    tasks_queue.timeout,
                     tasks_queue.attempt,
                     tasks_queue.max_attempts
             `;
@@ -310,10 +318,12 @@ export class TasksQueueDao {
       return Collection.from(res.rows).headOption.map((r) => {
         return {
           id: r["id"],
+          started: new Date(r["started"]),
           parentId: option(r["parent_id"]).map(Number).orUndefined,
           payload: option(r["payload"]).orUndefined,
           queue: r["queue"],
           repeatType: option(r["repeat_type"]).orUndefined,
+          timeout: Number(r["timeout"]),
           currentAttempt: r["attempt"],
           maxAttempts: r["max_attempts"],
         } as ScheduledTask;
@@ -352,20 +362,179 @@ export class TasksQueueDao {
   }
 
   @Metric()
-  async ping(taskId: number, now: Date = new Date()): Promise<void> {
+  async ping(
+    taskId: number,
+    expectedStarted: Date,
+    now: Date = new Date(),
+  ): Promise<boolean> {
     const cutoff = new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS);
-    await this.withClient(async (cl) => {
-      await cl.query(
+    return await this.withClient(async (cl) => {
+      const state = await cl.query(
+        `select status, started, last_heartbeat
+           from tasks_queue
+          where id = $1`,
+        [taskId],
+      );
+      const row = Collection.from(state.rows).headOption;
+      if (row.isEmpty) {
+        return false;
+      }
+
+      const current = row.get;
+      if (
+        current["status"] !== TaskStatus.in_progress ||
+        new Date(current["started"]).getTime() !== expectedStarted.getTime()
+      ) {
+        return false;
+      }
+
+      const lastHeartbeat = option(current["last_heartbeat"]).map(
+        (value) => new Date(value),
+      );
+      if (
+        lastHeartbeat
+          .map((value) => value.getTime() >= cutoff.getTime())
+          .getOrElseValue(false)
+      ) {
+        return true;
+      }
+
+      const res = await cl.query(
         `update tasks_queue
             set last_heartbeat = $1
           where id = $2
             and status = $3
-            and (
-              last_heartbeat is null
-              or last_heartbeat < $4
-            )`,
-        [now, taskId, TaskStatus.in_progress, cutoff],
+            and started = $4`,
+        [now, taskId, TaskStatus.in_progress, expectedStarted],
       );
+      return (res.rowCount ?? 0) === 1;
+    });
+  }
+
+  /**
+   * Applies timeout failure semantics to a single task if its current attempt is already stalled.
+   *
+   * Returns `none` when the task is still healthy and remains `in_progress`.
+   * Returns the current final status when the task has already timed out or is no longer `in_progress`
+   * because timeout handling was already applied by another code path.
+   */
+  @Metric()
+  async failIfStalled(
+    taskId: number,
+    expectedStarted: Date,
+    now: Date = new Date(),
+  ): Promise<Option<TaskStatus>> {
+    return await this.withClient(async (cl) => {
+      await cl.query("BEGIN");
+      try {
+        const taskRes = await cl.query(
+          `select id,
+                  parent_id,
+                  status,
+                  started,
+                  last_heartbeat,
+                  timeout,
+                  attempt,
+                  max_attempts,
+                  backoff,
+                  backoff_type
+             from tasks_queue
+            where id = $1
+            for update`,
+          [taskId],
+        );
+        const taskRow = Collection.from(taskRes.rows).headOption;
+        if (taskRow.isEmpty) {
+          await cl.query("COMMIT");
+          return none;
+        }
+
+        const row = taskRow.get;
+        const currentStatus =
+          TaskStatus[row["status"] as keyof typeof TaskStatus];
+        if (currentStatus !== TaskStatus.in_progress) {
+          await cl.query("COMMIT");
+          return some(currentStatus as TaskStatus);
+        }
+        if (new Date(row["started"]).getTime() !== expectedStarted.getTime()) {
+          await cl.query("COMMIT");
+          return none;
+        }
+
+        const started = option(row["started"]).map((v) => new Date(v));
+        const lastHeartbeat = option(row["last_heartbeat"]).map(
+          (v) => new Date(v),
+        );
+        const timeout = option(row["timeout"]).map(Number);
+        const lastActivity = lastHeartbeat
+          .getOrElseValue(started.get)
+          .getTime();
+        const isStalled = timeout
+          .map((ms) => lastActivity + ms < now.getTime())
+          .getOrElseValue(false);
+
+        if (!isStalled) {
+          await cl.query("COMMIT");
+          return none;
+        }
+
+        const status =
+          Number(row["attempt"]) < Number(row["max_attempts"])
+            ? TaskStatus.pending
+            : TaskStatus.error;
+        const backoff = Number(row["backoff"]);
+        const backoffType = String(row["backoff_type"]);
+        const retryDelay =
+          backoffType === "constant"
+            ? backoff
+            : backoffType === "linear"
+              ? backoff * Number(row["attempt"])
+              : backoff * Math.pow(2, Number(row["attempt"]) - 1);
+
+        await cl.query(
+          `update tasks_queue
+              set finished = $1,
+                  error = $2,
+                  status = $3,
+                  start_after = $4
+            where id = $5
+              and status = $6`,
+          [
+            now,
+            "Timeout",
+            status,
+            status === TaskStatus.pending
+              ? new Date(now.getTime() + retryDelay)
+              : null,
+            taskId,
+            TaskStatus.in_progress,
+          ],
+        );
+
+        if (status === TaskStatus.error) {
+          await cl.query(
+            `update tasks_queue
+                set status = $1,
+                    start_after = $2,
+                    finished = null,
+                    error = null
+              where id = $3
+                and status = $4`,
+            [
+              TaskStatus.pending,
+              now,
+              option(row["parent_id"]).orNull,
+              TaskStatus.blocked,
+            ],
+          );
+        }
+
+        await cl.query("COMMIT");
+        return some(status as TaskStatus);
+      } catch (e) {
+        await cl.query("ROLLBACK");
+        throw e;
+      }
     });
   }
 
@@ -420,10 +589,11 @@ export class TasksQueueDao {
     taskId: number,
     nextPayload?: object,
     result?: object,
+    expectedStarted?: Date,
     now: Date = new Date(),
-  ): Promise<void> {
-    await this.withClient(async (cl) => {
-      await cl.query(
+  ): Promise<boolean> {
+    return await this.withClient(async (cl) => {
+      const res = await cl.query(
         `update tasks_queue
                  set status=$1,
                      finished=$2,
@@ -431,7 +601,8 @@ export class TasksQueueDao {
                      payload=$5,
                      result=$6
                  where id = $3
-                   and status = $4`,
+                   and status = $4
+                   and started = $7`,
         [
           TaskStatus.finished,
           now,
@@ -439,8 +610,10 @@ export class TasksQueueDao {
           TaskStatus.in_progress,
           option(nextPayload).orNull,
           option(result).orNull,
+          option(expectedStarted).orNull,
         ],
       );
+      return (res.rowCount ?? 0) === 1;
     });
   }
 
@@ -503,14 +676,19 @@ export class TasksQueueDao {
     taskId: number,
     nextPayload?: object,
     result?: object,
+    expectedStarted?: Date,
     now: Date = new Date(),
-  ): Promise<void> {
-    await this.withClient(async (cl) => {
+  ): Promise<boolean> {
+    return await this.withClient(async (cl) => {
       await cl.query("BEGIN");
       try {
         // Lock the row and read scheduling parameters atomically to avoid races.
-        const periodicTask = await this.findPeriodicForReschedule(cl, taskId);
-        await periodicTask.mapPromise(async (task) => {
+        const periodicTask = await this.findPeriodicForReschedule(
+          cl,
+          taskId,
+          option(expectedStarted).orNull,
+        );
+        const updated = await periodicTask.mapPromise(async (task) => {
           // Compute the next trigger in application code to support both interval and cron schedules.
           const nextStartAfter = PeriodicScheduleUtils.calculateNextStartAfter(
             task,
@@ -526,7 +704,8 @@ export class TasksQueueDao {
                            payload     = $6,
                            result      = $7
                      WHERE id = $4
-                       AND status = $5`,
+                       AND status = $5
+                       AND started = $8`,
             [
               TaskStatus.pending,
               nextStartAfter,
@@ -535,11 +714,13 @@ export class TasksQueueDao {
               TaskStatus.in_progress,
               option(nextPayload).orNull,
               option(result).orNull,
+              option(expectedStarted).orNull,
             ],
           );
-          return task;
+          return true;
         });
         await cl.query("COMMIT");
+        return updated.getOrElseValue(false);
       } catch (e) {
         await cl.query("ROLLBACK");
         throw e;
@@ -550,6 +731,7 @@ export class TasksQueueDao {
   private async findPeriodicForReschedule(
     cl: PoolClient,
     taskId: number,
+    expectedStarted: Date | null,
   ): Promise<Option<PeriodicScheduleConfig>> {
     const res = await cl.query(
       `SELECT repeat_type,
@@ -561,6 +743,7 @@ export class TasksQueueDao {
          FROM tasks_queue
         WHERE id = $1
           AND status = $2
+          AND started = $6
           AND missed_runs_strategy IS NOT NULL
           AND repeat_type IN ($3, $4, $5)
           AND (
@@ -575,6 +758,7 @@ export class TasksQueueDao {
         TaskPeriodType.fixed_rate,
         TaskPeriodType.fixed_delay,
         TaskPeriodType.cron,
+        expectedStarted,
       ],
     );
     return Collection.from(res.rows).headOption.map((r) => ({
@@ -620,8 +804,9 @@ export class TasksQueueDao {
     error: string,
     nextPayload?: object,
     result?: object,
+    expectedStarted?: Date,
     now: Date = new Date(),
-  ): Promise<TaskStatus> {
+  ): Promise<Option<TaskStatus>> {
     return await this.withClient(async (cl) => {
       // TODO: extract shared fail/retry SQL so fail() and failStalled() use one transition definition.
       const res = await cl.query(
@@ -653,6 +838,7 @@ export class TasksQueueDao {
                     END
             WHERE id = $5
               AND status = $6
+              AND started = $9
             returning status
         `,
         [
@@ -664,11 +850,12 @@ export class TasksQueueDao {
           TaskStatus.in_progress, // $6
           option(nextPayload).orNull, // $7
           option(result).orNull, // $8
+          option(expectedStarted).orNull, // $9
         ],
       );
       return Collection.from(res.rows)
         .headOption.map((r) => TaskStatus[r.status as keyof typeof TaskStatus])
-        .getOrElseValue(TaskStatus.error);
+        .map((status) => status as TaskStatus);
     });
   }
 

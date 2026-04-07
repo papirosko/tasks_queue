@@ -5,8 +5,10 @@ import type { ScheduledTask } from "../src/tasks-model.js";
 
 const createTask = (id: number): ScheduledTask => ({
   id,
+  started: new Date(),
   queue: "q",
   payload: { id },
+  timeout: 60_000,
   currentAttempt: 1,
   maxAttempts: 3,
 });

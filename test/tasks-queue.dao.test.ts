@@ -21,19 +21,24 @@ const createDao = (query: any) => {
 describe("TasksQueueDao", () => {
   it("updates heartbeat only for in-progress tasks", async () => {
     const now = new Date("2026-04-02T10:00:00.000Z");
+    const started = new Date("2026-04-02T09:55:00.000Z");
     jest.useFakeTimers().setSystemTime(now);
-    const query = jest.fn(async () => ({ rows: [] }));
+    const query = jest.fn(async () => ({ rows: [{ status: "in_progress", started, last_heartbeat: null }], rowCount: 1 }));
     const { dao, release } = createDao(query);
 
-    await dao.ping(42);
+    await dao.ping(42, started);
 
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("select status, started, last_heartbeat"),
+      [42],
+    );
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("set last_heartbeat = $1"),
       [
         now,
         42,
         TaskStatus.in_progress,
-        new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS),
+        started,
       ],
     );
     expect(release).toHaveBeenCalled();
@@ -58,6 +63,7 @@ describe("TasksQueueDao", () => {
   });
 
   it("persists active child allowFailure flag on parent payload when scheduling child", async () => {
+    const started = new Date("2026-04-02T10:00:00.000Z");
     const query: any = jest.fn();
     query.mockResolvedValueOnce({ rows: [] });
     query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 7 }] });
@@ -77,6 +83,7 @@ describe("TasksQueueDao", () => {
         workflowPayload: { stage: "scan" },
         userPayload: { id: 1 },
       },
+      started,
     );
 
     expect(query).toHaveBeenCalledWith(
@@ -98,6 +105,7 @@ describe("TasksQueueDao", () => {
   });
 
   it("does not consume a parent attempt when moving task to blocked", async () => {
+    const started = new Date("2026-04-02T10:00:00.000Z");
     const query: any = jest.fn();
     query.mockResolvedValueOnce({ rows: [] });
     query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 7 }] });
@@ -116,6 +124,7 @@ describe("TasksQueueDao", () => {
         workflowPayload: { stage: "scan" },
         userPayload: { id: 1 },
       },
+      started,
     );
 
     expect(query.mock.calls[1][0]).toContain(
@@ -155,12 +164,13 @@ describe("TasksQueueDao", () => {
   });
 
   it("casts terminal failure result to jsonb in fail transition", async () => {
+    const started = new Date("2026-04-02T10:00:00.000Z");
     const query = jest.fn(async () => ({
       rows: [{ status: "error" }],
     }));
     const { dao, release } = createDao(query);
 
-    await dao.fail(11, "boom", { state: "failed" }, { partial: true });
+    await dao.fail(11, "boom", { state: "failed" }, { partial: true }, started);
 
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("ELSE $8::jsonb"),
@@ -173,6 +183,7 @@ describe("TasksQueueDao", () => {
         TaskStatus.in_progress,
         { state: "failed" },
         { partial: true },
+        started,
       ]),
     );
     expect(release).toHaveBeenCalled();

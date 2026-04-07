@@ -1,13 +1,87 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "@jest/globals";
-import { Option } from "scats";
+import { mutable, Option } from "scats";
 import { TaskPeriodType, TaskStatus } from "../../src/tasks-model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ControlledTestWorker } from "./support/controlled-test-worker.js";
 import { ManualClock } from "./support/manual-clock.js";
 import { TestTaskEventType, TestTaskEventsBus } from "./support/task-events-bus.js";
+import { TaskContext } from "../../src/tasks-model.js";
+import { TasksWorker } from "../../src/tasks-worker.js";
 
 class QueueIntegrationTest extends BaseIntegrationTest {}
+
+class MultiExecutionControlledWorker extends TasksWorker {
+  private readonly executions =
+    new mutable.HashMap<
+      number,
+      mutable.ArrayBuffer<{
+        context: TaskContext;
+        deferred: {
+          promise: Promise<void>;
+          resolve: () => void;
+          reject: (error: Error) => void;
+        };
+      }>
+    >();
+  private readonly submittedResults = new mutable.HashMap<string, object>();
+
+  constructor(private readonly bus: TestTaskEventsBus) {
+    super();
+  }
+
+  override async process(payload: any, context: TaskContext): Promise<void> {
+    let resolveFn: (() => void) | undefined;
+    let rejectFn: ((error: Error) => void) | undefined;
+    const deferred = {
+      promise: new Promise<void>((resolve, reject) => {
+        resolveFn = resolve;
+        rejectFn = reject;
+      }),
+      resolve: () => resolveFn!(),
+      reject: (error: Error) => rejectFn!(error),
+    };
+    const runs = this.executions
+      .get(context.taskId)
+      .getOrElse(() => new mutable.ArrayBuffer());
+    runs.append({ context, deferred });
+    this.executions.put(context.taskId, runs);
+    this.bus.emitStarted(context.taskId, payload);
+    await deferred.promise;
+  }
+
+  override async completed(taskId: number): Promise<void> {
+    this.bus.emitCompleted(taskId, this.submittedResults.get(`${taskId}:2`).orUndefined);
+    this.submittedResults.clear();
+  }
+
+  override async failed(
+    taskId: number,
+    _payload: any,
+    _finalStatus: TaskStatus,
+    error: any,
+  ): Promise<void> {
+    this.bus.emitFailed(taskId, String(error?.message ?? error));
+  }
+
+  complete(taskId: number, occurrence: number = 1, result?: object): void {
+    const execution = this.execution(taskId, occurrence);
+    if (result !== undefined) {
+      execution.context.submitResult(result);
+      this.submittedResults.put(`${taskId}:${occurrence}`, result);
+    }
+    execution.deferred.resolve();
+  }
+
+  reset(): void {
+    this.executions.clear();
+    this.submittedResults.clear();
+  }
+
+  private execution(taskId: number, occurrence: number) {
+    return this.executions.get(taskId).get.get(occurrence - 1);
+  }
+}
 
 describe("Periodic task start integration", () => {
   const baseTime = new Date("2026-04-07T10:00:00.000Z");
@@ -16,16 +90,19 @@ describe("Periodic task start integration", () => {
   const test = new QueueIntegrationTest(clock);
   const bus = new TestTaskEventsBus();
   const worker = new ControlledTestWorker(bus);
+  const multiRunWorker = new MultiExecutionControlledWorker(bus);
 
   beforeAll(async () => {
     await test.start();
     test.tasksQueueService.registerWorker("periodic", worker);
+    test.tasksQueueService.registerWorker("periodic-race", multiRunWorker);
   });
 
   beforeEach(async () => {
     await test.reset();
     bus.reset();
     worker.reset();
+    multiRunWorker.reset();
     clock.set(baseTime);
   });
 
@@ -79,6 +156,99 @@ describe("Periodic task start integration", () => {
       { kind: "cron" },
       new Date(scheduledStart.getTime() + TimeUtils.minute),
     );
+  });
+
+  it("uses timeout retry instead of periodic reschedule when completion happens after timeout", async () => {
+    const taskId = await test.tasksQueueService.scheduleAtFixedRate({
+      queue: "periodic",
+      name: "fixed-rate-timeout",
+      period: TimeUtils.minute,
+      startAfter: scheduledStart,
+      payload: { kind: "fixed-rate-timeout" },
+      retries: 2,
+      timeout: TimeUtils.second,
+      backoff: TimeUtils.second * 5,
+    });
+
+    expect(taskId.isDefined).toBe(true);
+
+    // Start the periodic attempt exactly on schedule and let it overrun its timeout window.
+    clock.set(scheduledStart);
+    const runPromise = test.tasksQueueService.runOnce();
+    await bus.waitForStarted(taskId.get);
+
+    clock.advance(TimeUtils.second + 1);
+    worker.complete(taskId.get, { stale: true });
+    await bus.waitForFailed(taskId.get);
+    await runPromise;
+
+    // Timed out completion must follow normal retry semantics, not periodic timer rescheduling.
+    const retriedTask = await test.manageTasksQueueService.findById(taskId.get);
+    expect(retriedTask.isDefined).toBe(true);
+    expect(retriedTask.get.status).toBe(TaskStatus.pending);
+    expect(retriedTask.get.attempt).toBe(1);
+    expect(retriedTask.get.error.orUndefined).toBe("Timeout");
+    expect(retriedTask.get.result).toBeNull();
+    expect(retriedTask.get.startAfter.orUndefined).toEqual(
+      new Date(clock.now().getTime() + TimeUtils.second * 5),
+    );
+    expect(retriedTask.get.startAfter.orUndefined).not.toEqual(
+      new Date(scheduledStart.getTime() + TimeUtils.minute),
+    );
+  });
+
+  it("does not let a stale periodic attempt shift the timer after retry starts", async () => {
+    const taskId = await test.tasksQueueService.scheduleAtFixedRate({
+      queue: "periodic-race",
+      name: "fixed-rate-race",
+      period: TimeUtils.minute,
+      startAfter: scheduledStart,
+      payload: { kind: "fixed-rate-race" },
+      retries: 2,
+      timeout: TimeUtils.second,
+      backoff: 0,
+    });
+
+    expect(taskId.isDefined).toBe(true);
+
+    // First periodic run stalls and becomes immediately retryable.
+    clock.set(scheduledStart);
+    const firstRun = test.tasksQueueService.runOnce();
+    await bus.waitForStarted(taskId.get, 1);
+    clock.advance(TimeUtils.second + 1);
+    multiRunWorker.complete(taskId.get, 1, { stale: true });
+    await bus.waitForFailed(taskId.get, 1);
+    await firstRun;
+
+    // Second run starts with a new started timestamp and now owns the periodic row.
+    const secondRun = test.tasksQueueService.runOnce();
+    await bus.waitForStarted(taskId.get, 2);
+    const rowWhileSecondRunActive = await test.db.query(
+      `select started, status, start_after, result
+         from tasks_queue
+        where id = $1`,
+      [taskId.get],
+    );
+    const secondStarted = new Date(rowWhileSecondRunActive.rows[0]["started"]);
+    const retryStartAfter = new Date(rowWhileSecondRunActive.rows[0]["start_after"]);
+    expect(rowWhileSecondRunActive.rows[0]["status"]).toBe(TaskStatus.in_progress);
+    expect(rowWhileSecondRunActive.rows[0]["result"]).toBeNull();
+
+    // Completing the stale first run already happened above; it must not have shifted the periodic timer.
+    expect(retryStartAfter).toEqual(clock.now());
+
+    // Current run still owns the row and may reschedule it using the real periodic schedule.
+    multiRunWorker.complete(taskId.get, 2, { fresh: true });
+    await secondRun;
+
+    const rescheduledTask = await test.manageTasksQueueService.findById(taskId.get);
+    expect(rescheduledTask.isDefined).toBe(true);
+    expect(rescheduledTask.get.status).toBe(TaskStatus.pending);
+    expect(rescheduledTask.get.result).toEqual({ fresh: true });
+    expect(rescheduledTask.get.startAfter.orUndefined).toEqual(
+      new Date(scheduledStart.getTime() + TimeUtils.minute),
+    );
+    expect(rescheduledTask.get.startAfter.orUndefined).not.toEqual(retryStartAfter);
   });
 
   async function expectStartsOnTime(

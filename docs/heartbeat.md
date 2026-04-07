@@ -14,6 +14,10 @@ greatest(started, coalesce(last_heartbeat, started))
 
 A task is considered stalled only when that effective activity time plus `timeout` is older than the current time.
 
+If `context.ping()` is called after that window has already elapsed, it throws and the task is immediately transitioned through the same timeout failure path that auxiliary stalled detection uses.
+
+If `process(...)` returns successfully after the timeout window has already elapsed, the queue also treats that attempt as a timeout failure instead of marking the task as successfully completed.
+
 ## When To Use
 
 Use `context.ping()` when the worker:
@@ -35,6 +39,8 @@ The throttling is applied in two places:
 - in the DAO SQL update, to keep the database protected even if `ping()` is called too often.
 
 Because of this, it is safe to call `context.ping()` more often than once per minute, but only one heartbeat per minute will be persisted.
+
+This also means that long-running tasks must choose a timeout comfortably larger than the heartbeat persistence interval, or they will still be considered stalled.
 
 ## Example
 

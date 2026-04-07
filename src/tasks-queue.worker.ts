@@ -11,6 +11,7 @@ import {
   TaskFailed,
   TaskStateSnapshot,
   TaskStatus,
+  TaskTimedOutError,
 } from "./tasks-model.js";
 import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
@@ -22,28 +23,61 @@ class RuntimeTaskContext implements TaskContext {
   private childTask: Option<SpawnChildTaskDetails> = none;
   private _nextPayload: Option<object> = none;
   private _submittedResult: Option<object> = none;
-  private lastPingAt: Option<number> = none;
+  private readonly attemptStartedAt: Date;
+  private lastHeartbeatAt: Option<number> = none;
   resolvedChildTask: Option<TaskStateSnapshot> = none;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
     readonly taskId: number,
+    readonly startedAt: Date,
     readonly currentAttempt: number,
     readonly maxAttempts: number,
+    private readonly timeout: number,
     private readonly clock: Clock,
-  ) {}
+  ) {
+    this.attemptStartedAt = new Date(startedAt);
+  }
+
+  async ensureNotStalled(): Promise<void> {
+    const now = this.clock.now();
+    if (
+      now.getTime() -
+        this.lastHeartbeatAt.getOrElseValue(this.attemptStartedAt.getTime()) <=
+      this.timeout
+    ) {
+      return;
+    }
+
+    const finalStatus = (
+      await this.tasksQueueDao.failIfStalled(
+        this.taskId,
+        this.attemptStartedAt,
+        now,
+      )
+    ).getOrElseValue(TaskStatus.error);
+    throw new TaskTimedOutError(this.taskId, finalStatus);
+  }
 
   async ping(): Promise<void> {
+    await this.ensureNotStalled();
     const now = this.clock.now().getTime();
     if (
-      this.lastPingAt
-        .map((lastPingAt) => now - lastPingAt < TASK_HEARTBEAT_THROTTLE_MS)
+      this.lastHeartbeatAt
+        .map((lastHeartbeatAt) => now - lastHeartbeatAt < TASK_HEARTBEAT_THROTTLE_MS)
         .getOrElseValue(false)
     ) {
       return;
     }
-    await this.tasksQueueDao.ping(this.taskId, this.clock.now());
-    this.lastPingAt = some(now);
+    const persisted = await this.tasksQueueDao.ping(
+      this.taskId,
+      this.attemptStartedAt,
+      this.clock.now(),
+    );
+    if (!persisted) {
+      throw new Error(`Task ${this.taskId} execution is no longer active`);
+    }
+    this.lastHeartbeatAt = some(now);
   }
 
   spawnChild(task: SpawnChildTaskDetails): void {
@@ -168,8 +202,9 @@ export class TasksQueueWorker {
   private async persistSuccessfulOutcome(
     task: ScheduledTask,
     context: RuntimeTaskContext,
-  ): Promise<void> {
-    await context.spawnedChild.match({
+  ): Promise<boolean> {
+    await context.ensureNotStalled();
+    return await context.spawnedChild.match({
       some: async (spawnedChild) => {
         option(task.repeatType).foreach(() => {
           throw new Error(`Periodic task ${task.id} cannot spawn child tasks`);
@@ -179,28 +214,35 @@ export class TasksQueueWorker {
             task.id,
             spawnedChild,
             context.payloadToPersist(task.payload),
+            task.started,
             this.clock.now(),
           );
         childTaskId.foreach(() => this.tasksScheduled(spawnedChild.queue));
+        return childTaskId.isDefined;
       },
       none: async () => {
-        await option(task.repeatType).match({
+        return await option(task.repeatType).match({
           some: async () => {
-            await this.tasksQueueDao.rescheduleIfPeriodic(
+            return await this.tasksQueueDao.rescheduleIfPeriodic(
               task.id,
               context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
+              task.started,
               this.clock.now(),
             );
           },
           none: async () => {
-            await this.tasksQueueDao.finish(
+            const finished = await this.tasksQueueDao.finish(
               task.id,
               context.payloadToPersist(task.payload),
               context.submittedResult.orUndefined,
+              task.started,
               this.clock.now(),
             );
-            await this.wakeBlockedParent(task.id);
+            if (finished) {
+              await this.wakeBlockedParent(task.id);
+            }
+            return finished;
           },
         });
       },
@@ -214,8 +256,10 @@ export class TasksQueueWorker {
         const context = new RuntimeTaskContext(
           this.tasksQueueDao,
           task.id,
+          task.started,
           task.currentAttempt,
           task.maxAttempts,
+          task.timeout,
           this.clock,
         );
         try {
@@ -226,7 +270,13 @@ export class TasksQueueWorker {
             ),
           );
           await worker.process(task.payload, context);
-          await this.persistSuccessfulOutcome(task, context);
+          const persisted = await this.persistSuccessfulOutcome(task, context);
+          if (!persisted) {
+            logger.info(
+              `Skipping completion for task (id=${task.id}) in queue=${task.queue}: execution ownership was lost`,
+            );
+            return;
+          }
           MetricsService.counter("tasks_queue_processed").inc();
           (
             await Try.promise(() => worker.completed(task.id, task.payload))
@@ -237,14 +287,23 @@ export class TasksQueueWorker {
             ),
           );
         } catch (e) {
-          const finalStatus = await this.tasksQueueDao.fail(
-            task.id,
-            (e as any)["message"] || e,
-            e instanceof TaskFailed ? e.payload : task.payload,
-            context.submittedResult.orUndefined,
-            this.clock.now(),
-          );
-          if (finalStatus === TaskStatus.error) {
+          const finalStatus =
+            e instanceof TaskTimedOutError
+              ? e.finalStatus
+              : (
+                  await this.tasksQueueDao.fail(
+                  task.id,
+                  (e as any)["message"] || e,
+                  e instanceof TaskFailed ? e.payload : task.payload,
+                  context.submittedResult.orUndefined,
+                  task.started,
+                  this.clock.now(),
+                )
+              ).getOrElseValue(TaskStatus.error);
+          if (
+            finalStatus === TaskStatus.error &&
+            !(e instanceof TaskTimedOutError)
+          ) {
             await this.wakeBlockedParent(task.id);
           }
           (
