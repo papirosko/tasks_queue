@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { some } from "scats";
 import { TasksQueueDao } from "../src/tasks-queue.dao.js";
-import { TaskStatus } from "../src/tasks-model.js";
+import { TaskPeriodType, TaskStatus } from "../src/tasks-model.js";
 
 const createDao = (query: any) => {
   const release = jest.fn();
@@ -204,5 +204,69 @@ describe("TasksQueueDao", () => {
     expect(sql).toContain("ancestors.status <> $1");
     expect(release).toHaveBeenCalled();
     jest.useRealTimers();
+  });
+
+  it("keeps periodic scheduling idempotent by default on name conflict", async () => {
+    const now = new Date("2026-04-22T10:00:00.000Z");
+    const query = jest.fn(async () => ({ rows: [{ id: 77 }] }));
+    const { dao } = createDao(query);
+
+    await dao.schedulePeriodic(
+      {
+        name: "cron-report",
+        queue: "reports",
+        cronExpression: "0 * * * * *",
+      },
+      TaskPeriodType.cron,
+      now,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("on conflict (name) do nothing"),
+      expect.arrayContaining(["cron-report", "reports"]),
+    );
+  });
+
+  it("replaces existing periodic config when replaceExisting is true", async () => {
+    const now = new Date("2026-04-22T10:00:00.000Z");
+    const query = jest.fn(async () => ({ rows: [{ id: 77 }] }));
+    const { dao } = createDao(query);
+
+    await dao.schedulePeriodic(
+      {
+        name: "fixed-sync",
+        queue: "sync",
+        period: 60_000,
+        replaceExisting: true,
+      },
+      TaskPeriodType.fixed_rate,
+      now,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("on conflict (name) do update"),
+      expect.arrayContaining(["fixed-sync", "sync"]),
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("where tasks_queue.status = $3"),
+      expect.any(Array),
+    );
+  });
+
+  it("validates periodic task name length before persistence", async () => {
+    const query = jest.fn(async () => ({ rows: [] }));
+    const { dao } = createDao(query);
+
+    await expect(
+      dao.schedulePeriodic(
+        {
+          name: "this-name-is-longer-than-twenty-chars",
+          queue: "reports",
+          period: 60_000,
+        },
+        TaskPeriodType.fixed_delay,
+      ),
+    ).rejects.toThrow("Periodic task 'name' must be 20 characters or less");
+    expect(query).not.toHaveBeenCalled();
   });
 });

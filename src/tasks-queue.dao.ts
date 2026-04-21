@@ -213,34 +213,68 @@ export class TasksQueueDao {
     option(cronExpression).foreach((expr) =>
       CronExpressionUtils.validate(expr),
     );
+    if (task.name.length > 20) {
+      throw new Error("Periodic task 'name' must be 20 characters or less");
+    }
+    const replaceExisting = option(task.replaceExisting).getOrElseValue(false);
 
     return await this.withClient(async (cl) => {
+      const params = Collection.of<any>(
+        task.queue,
+        now,
+        TaskStatus.pending,
+        option(task.priority).getOrElseValue(0),
+        option(task.payload).orNull,
+        option(task.timeout).getOrElseValue(TimeUtils.hour),
+        option(task.retries).getOrElseValue(1),
+        option(task.startAfter).getOrElseValue(now),
+        task.name,
+        repeatInterval,
+        cronExpression,
+        periodType,
+        option(task.backoff).getOrElseValue(TimeUtils.minute),
+        option(task.backoffType).getOrElseValue(BackoffType.linear),
+        option(task.missedRunStrategy).getOrElseValue(
+          MissedRunStrategy.skip_missed,
+        ),
+      ).toArray;
       const res = await cl.query(
-        `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
-                                          start_after, initial_start, name,
-                                          repeat_interval, cron_expression, repeat_type, backoff, backoff_type, missed_runs_strategy)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
-                 on conflict (name) do nothing
-                 returning id`,
-        [
-          task.queue,
-          now,
-          TaskStatus.pending,
-          option(task.priority).getOrElseValue(0),
-          option(task.payload).orNull,
-          option(task.timeout).getOrElseValue(TimeUtils.hour),
-          option(task.retries).getOrElseValue(1),
-          option(task.startAfter).getOrElseValue(now),
-          task.name,
-          repeatInterval,
-          cronExpression,
-          periodType,
-          option(task.backoff).getOrElseValue(TimeUtils.minute),
-          option(task.backoffType).getOrElseValue(BackoffType.linear),
-          option(task.missedRunStrategy).getOrElseValue(
-            MissedRunStrategy.skip_missed,
-          ),
-        ],
+        replaceExisting
+          ? `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
+                                      start_after, initial_start, name,
+                                      repeat_interval, cron_expression, repeat_type, backoff, backoff_type, missed_runs_strategy)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
+             on conflict (name) do update
+                 set queue = excluded.queue,
+                     status = excluded.status,
+                     priority = excluded.priority,
+                     payload = excluded.payload,
+                     timeout = excluded.timeout,
+                     max_attempts = excluded.max_attempts,
+                     start_after = excluded.start_after,
+                     initial_start = excluded.initial_start,
+                     repeat_interval = excluded.repeat_interval,
+                     cron_expression = excluded.cron_expression,
+                     repeat_type = excluded.repeat_type,
+                     backoff = excluded.backoff,
+                     backoff_type = excluded.backoff_type,
+                     missed_runs_strategy = excluded.missed_runs_strategy,
+                     started = null,
+                     last_heartbeat = null,
+                     finished = null,
+                     error = null,
+                     attempt = 0,
+                     parent_id = null,
+                     result = null
+               where tasks_queue.status = $3
+             returning id`
+          : `insert into tasks_queue (queue, created, status, priority, payload, timeout, max_attempts,
+                                      start_after, initial_start, name,
+                                      repeat_interval, cron_expression, repeat_type, backoff, backoff_type, missed_runs_strategy)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
+             on conflict (name) do nothing
+             returning id`,
+        params,
       );
       return Collection.from(res.rows).headOption.map((r) => r.id as number);
     });

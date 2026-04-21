@@ -199,6 +199,13 @@ export interface SchedulePeriodicTaskDetails extends ScheduleTaskDetails {
    * - 'skip_missed' — run once immediately and schedule the next one based on the original schedule.
    */
   missedRunStrategy?: MissedRunStrategy;
+  /**
+   * If true, replace an existing periodic task with the same `name` instead of
+   * ignoring the schedule request.
+   *
+   * If false or omitted, duplicate `name` conflicts are ignored.
+   */
+  replaceExisting?: boolean;
 }
 
 /**
@@ -232,6 +239,13 @@ export interface ScheduleCronTaskDetails extends ScheduleTaskDetails {
    * - 'skip_missed' — run once and schedule the next future tick.
    */
   missedRunStrategy?: MissedRunStrategy;
+  /**
+   * If true, replace an existing periodic task with the same `name` instead of
+   * ignoring the schedule request.
+   *
+   * If false or omitted, duplicate `name` conflicts are ignored.
+   */
+  replaceExisting?: boolean;
 }
 
 /**

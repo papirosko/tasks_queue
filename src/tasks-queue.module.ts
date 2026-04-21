@@ -19,6 +19,7 @@ import { TimeUtils } from "./time-utils.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { identity, option } from "scats";
 import { WorkersDiscoveryRegistrar } from "./workers-discovery.registrar.js";
+import { ScheduledTasksRegistrar } from "./scheduled-tasks.registrar.js";
 
 @Module({})
 /**
@@ -85,6 +86,7 @@ export class TasksQueueModule
             ),
         },
         WorkersDiscoveryRegistrar,
+        ScheduledTasksRegistrar,
       ],
       exports: [TasksPoolsService, ManageTasksQueueService],
     };

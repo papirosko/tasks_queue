@@ -268,6 +268,45 @@ Constraints:
 - decorated methods should follow `(payload, context) => Promise<void>`
 - lifecycle hooks (`starting`, `completed`, `failed`) are available only in class-based `TasksWorker`
 
+### Register periodic schedules with `@ScheduledTask(...)` decorator
+
+You can declare periodic task provisioning directly on provider methods.
+
+```ts
+import { Injectable } from "@nestjs/common";
+import { ScheduledTask, TaskContext, Worker } from "@penkov/tasks_queue";
+
+@Injectable()
+export class BillingWorkers {
+  @Worker({ queue: "billing-sync" })
+  @ScheduledTask({
+    name: "billing-sync-cron",
+    queue: "billing-sync",
+    cron: "0 */5 * * * *",
+    replaceExisting: true,
+    payload: { source: "bootstrap" },
+  })
+  async syncBilling(payload: any, context: TaskContext): Promise<void> {
+    await context.ping();
+    context.submitResult({ ok: true, source: payload["source"] });
+  }
+}
+```
+
+Supported schedule forms:
+
+- `cron`: `{ cron: "0 * * * * *" }`
+- fixed rate: `{ fixedRate: 60_000 }`
+- fixed delay: `{ fixedDelay: 60_000 }`
+
+Important notes:
+
+- `@ScheduledTask(...)` only provisions periodic rows; it does not register a queue worker by itself
+- periodic names are deduplicated by `name`
+- when `replaceExisting` is omitted or `false`, name conflicts are ignored
+- when `replaceExisting` is `true`, pending periodic definitions with the same name are replaced
+- if a method has both `@Worker` and `@ScheduledTask`, their `queue` values must match
+
 ### When to use multiple pools
 
 Create multiple pools when different workloads need different execution characteristics:
@@ -365,6 +404,26 @@ Periodic tasks support two policies for downtime or missed windows:
 - `catch_up`: enqueue one run for each missed interval
 
 Choose `catch_up` only when every missed execution is materially important.
+
+### Replace existing periodic schedule by name
+
+Use `replaceExisting: true` when the same periodic `name` should be updated instead of ignored:
+
+```ts
+await tasks.scheduleAtFixedRate({
+  name: "refresh-cache",
+  queue: "refresh-cache",
+  period: 15 * 60_000,
+  replaceExisting: true,
+  payload: {},
+});
+```
+
+Conflict behavior:
+
+- default (`replaceExisting` omitted/false): `on conflict (name) do nothing`
+- replace mode (`replaceExisting=true`): upsert schedule configuration for the same `name`
+- replace mode updates only pending periodic rows; non-pending conflicts are left unchanged
 
 ### Periodic task timeout semantics
 
@@ -560,3 +619,4 @@ Its metrics sync registers queue/status gauges using sanitized metric names deri
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md): detailed guide for `MultiStepTask`, `SequentialTask`, child completion, failure handling, and payload shape
 - [docs/heartbeat.md](docs/heartbeat.md): detailed guide for heartbeat behavior and stalled detection
 - [docs/nest-worker-decorator.md](docs/nest-worker-decorator.md): declarative NestJS worker registration using `@Worker(...)`
+- [docs/nest-scheduled-task-decorator.md](docs/nest-scheduled-task-decorator.md): declarative periodic task provisioning via `@ScheduledTask(...)`

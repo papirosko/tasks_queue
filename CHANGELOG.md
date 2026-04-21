@@ -5,11 +5,16 @@
 ### Added
 - Added declarative NestJS method-level worker registration with `@Worker({ queue, pool? })`.
 - Added automatic discovery and registration of decorated provider methods through Nest `DiscoveryModule`.
+- Added declarative periodic task provisioning in NestJS providers via `@ScheduledTask(...)` with cron, fixed-rate, and fixed-delay variants.
+- Added `replaceExisting` support for periodic scheduling APIs and DAO persistence flow.
 - Added unit coverage for decorated worker discovery and runtime method invocation adapter behavior.
+- Added unit coverage for scheduled task discovery and periodic replacement conflict handling.
 - Added documentation for the new decorator-based registration flow in `README.md` and `docs/nest-worker-decorator.md`.
+- Added documentation for `@ScheduledTask(...)` and `replaceExisting` behavior in `README.md` and `docs/nest-scheduled-task-decorator.md`.
 
 ### Changed
 - `TasksQueueModule` now wires a discovery registrar that registers decorated methods before pool startup while preserving existing `TasksPoolsService.registerWorker(...)` semantics.
+- `TasksQueueModule` now also provisions periodic tasks declared with `@ScheduledTask(...)` during module initialization, before pool startup.
 
 ## 1.7.6
 
