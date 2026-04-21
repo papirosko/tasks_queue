@@ -14,10 +14,11 @@ import {
   TasksQueueOptionsFactory,
 } from "./tasks-queue-async-options.js";
 import { Type } from "@nestjs/common/interfaces";
-import { ModuleRef } from "@nestjs/core";
+import { DiscoveryModule, ModuleRef } from "@nestjs/core";
 import { TimeUtils } from "./time-utils.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { identity, option } from "scats";
+import { WorkersDiscoveryRegistrar } from "./workers-discovery.registrar.js";
 
 @Module({})
 /**
@@ -46,10 +47,14 @@ export class TasksQueueModule
    */
   static forRootAsync(options: TasksQueueAsyncOptions): DynamicModule {
     const asyncProviders = this.createAsyncProviders(options);
+    const imports =
+      options.imports === undefined
+        ? [DiscoveryModule]
+        : [...options.imports, DiscoveryModule];
 
     return {
       module: TasksQueueModule,
-      imports: options.imports,
+      imports,
       providers: [
         ...asyncProviders,
         {
@@ -79,6 +84,7 @@ export class TasksQueueModule
               opts.pools,
             ),
         },
+        WorkersDiscoveryRegistrar,
       ],
       exports: [TasksPoolsService, ManageTasksQueueService],
     };

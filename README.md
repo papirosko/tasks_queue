@@ -232,6 +232,42 @@ async onApplicationBootstrap() {
 }
 ```
 
+### Register workers with `@Worker(...)` decorator
+
+As an alternative to explicit bootstrap registration, you can declare worker handlers directly on provider methods.
+
+```ts
+import { Injectable } from "@nestjs/common";
+import { TaskContext, Worker } from "@penkov/tasks_queue";
+
+@Injectable()
+export class FinanceWorkers {
+  @Worker({ queue: "finance-payout" })
+  async processPayout(payload: any, context: TaskContext): Promise<void> {
+    await context.ping();
+    context.submitResult({ payoutId: payload["payoutId"] });
+  }
+
+  @Worker({ queue: "finance-documents", pool: "documents" })
+  async downloadDocument(payload: any, context: TaskContext): Promise<void> {
+    context.submitResult({ documentId: payload["documentId"] });
+  }
+}
+```
+
+How it works:
+
+- methods with `@Worker(...)` are discovered automatically during module init
+- each method is wrapped into an internal `TasksWorker` adapter
+- registration still goes through `TasksPoolsService.registerWorker(...)`
+
+Constraints:
+
+- one queue can be registered only once
+- `pool` is optional and defaults to `default`
+- decorated methods should follow `(payload, context) => Promise<void>`
+- lifecycle hooks (`starting`, `completed`, `failed`) are available only in class-based `TasksWorker`
+
 ### When to use multiple pools
 
 Create multiple pools when different workloads need different execution characteristics:
@@ -523,3 +559,4 @@ Its metrics sync registers queue/status gauges using sanitized metric names deri
 
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md): detailed guide for `MultiStepTask`, `SequentialTask`, child completion, failure handling, and payload shape
 - [docs/heartbeat.md](docs/heartbeat.md): detailed guide for heartbeat behavior and stalled detection
+- [docs/nest-worker-decorator.md](docs/nest-worker-decorator.md): declarative NestJS worker registration using `@Worker(...)`

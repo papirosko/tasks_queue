@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.7
+
+### Added
+- Added declarative NestJS method-level worker registration with `@Worker({ queue, pool? })`.
+- Added automatic discovery and registration of decorated provider methods through Nest `DiscoveryModule`.
+- Added unit coverage for decorated worker discovery and runtime method invocation adapter behavior.
+- Added documentation for the new decorator-based registration flow in `README.md` and `docs/nest-worker-decorator.md`.
+
+### Changed
+- `TasksQueueModule` now wires a discovery registrar that registers decorated methods before pool startup while preserving existing `TasksPoolsService.registerWorker(...)` semantics.
+
 ## 1.7.6
 
 ### Fixed
