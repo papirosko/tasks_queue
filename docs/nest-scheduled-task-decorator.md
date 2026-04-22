@@ -1,13 +1,10 @@
 # NestJS `@ScheduledTask` method decorator
 
-The library supports declarative provisioning of periodic tasks in NestJS providers through `@ScheduledTask(...)`.
+The library supports declarative periodic workers in NestJS providers through
+`@ScheduledTask(...)`.
 
-This decorator is independent from `@Worker(...)`.
-
-- `@ScheduledTask(...)` provisions periodic rows in `tasks_queue`
-- `@Worker(...)` registers queue handlers in runtime pools
-
-Use both on the same method when one method should both consume and provision a periodic queue.
+- `@ScheduledTask(...)` registers queue handlers in runtime pools
+- `@ScheduledTask(...)` also provisions periodic rows in `tasks_queue`
 
 ## Example
 
@@ -16,15 +13,14 @@ import { Injectable } from "@nestjs/common";
 import {
   ScheduledTask,
   TaskContext,
-  Worker,
 } from "@penkov/tasks_queue";
 
 @Injectable()
 export class FinanceWorkers {
-  @Worker({ queue: "finance-sync" })
   @ScheduledTask({
     name: "finance-sync-cron",
     queue: "finance-sync",
+    pool: "finance",
     cron: "0 */5 * * * *",
     replaceExisting: true,
     payload: { source: "bootstrap" },
@@ -74,6 +70,7 @@ Exactly one schedule field must be provided:
 
 In addition to schedule field and required identity fields (`name`, `queue`), the decorator accepts standard task settings:
 
+- `pool` (optional, defaults to `default`)
 - `startAfter`
 - `priority`
 - `payload`
@@ -100,16 +97,24 @@ If a conflicting row exists but is not pending, replace is not applied.
 On module initialization, the framework registrar:
 
 1. scans providers for `@ScheduledTask(...)`
-2. calls the corresponding scheduling API:
-   - `scheduleAtCron(...)`
-   - `scheduleAtFixedRate(...)`
-   - `scheduleAtFixedDelay(...)`
+2. registers each decorated method as a queue worker
 
-This runs before queue pools start processing.
+On application bootstrap, it provisions periodic definitions via:
+
+1. `scheduleAtCron(...)`
+2. `scheduleAtFixedRate(...)`
+3. `scheduleAtFixedDelay(...)`
+
+This ordering gives all modules time to initialize before schedule upserts run.
+
+Calls map to:
+- `scheduleAtCron(...)`
+- `scheduleAtFixedRate(...)`
+- `scheduleAtFixedDelay(...)`
 
 ## Validation and constraints
 
 - `name` is limited to 20 characters (database constraint + runtime validation)
 - exactly one of `cron`, `fixedRate`, `fixedDelay` must be set
-- if the same method also has `@Worker(...)`, `queue` must match in both decorators
+- `@ScheduledTask(...)` cannot be combined with `@Worker(...)` on the same method
 - cron schedules are evaluated in UTC in the current implementation

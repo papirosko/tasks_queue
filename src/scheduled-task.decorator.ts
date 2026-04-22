@@ -18,6 +18,11 @@ interface ScheduledTaskBaseOptions {
    */
   queue: string;
   /**
+   * Optional pool where the method worker should be registered.
+   * Defaults to `default`.
+   */
+  pool?: string;
+  /**
    * Optional initial start time.
    */
   startAfter?: Date;
@@ -95,7 +100,8 @@ export type ScheduledTaskOptions =
 /**
  * Mark a provider method with a periodic schedule declaration.
  *
- * The decorator only declares schedule metadata. It does not register a queue worker.
+ * The decorator declares schedule metadata and auto-registers the decorated
+ * method as a queue worker during NestJS module initialization.
  */
 export const ScheduledTask =
   (options: ScheduledTaskOptions): MethodDecorator =>

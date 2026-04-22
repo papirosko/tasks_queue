@@ -1,31 +1,11 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { DiscoveryService, MetadataScanner } from "@nestjs/core";
-import { TaskContext } from "./tasks-model.js";
 import { TasksPoolsService } from "./tasks-pools.service.js";
-import { TasksWorker } from "./tasks-worker.js";
 import {
   TASKS_QUEUE_WORKER_METADATA,
   WorkerOptions,
 } from "./worker.decorator.js";
-
-class DecoratedMethodWorker extends TasksWorker {
-  constructor(
-    private readonly instance: Record<string, unknown>,
-    private readonly methodName: string,
-  ) {
-    super();
-  }
-
-  override async process(payload: any, context: TaskContext): Promise<void> {
-    const method = this.instance[this.methodName];
-    if (typeof method !== "function") {
-      throw new Error(
-        `@Worker handler method '${this.methodName}' is not a function`,
-      );
-    }
-    await method.call(this.instance, payload, context);
-  }
-}
+import { DecoratedMethodWorker } from "./decorated-method-worker.js";
 
 /**
  * Discovers provider methods marked with {@link Worker} and registers them in queue pools.

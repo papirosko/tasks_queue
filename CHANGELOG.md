@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.7
+## 1.7.8
 
 ### Added
 - Added declarative NestJS method-level worker registration with `@Worker({ queue, pool? })`.
@@ -13,8 +13,10 @@
 - Added documentation for `@ScheduledTask(...)` and `replaceExisting` behavior in `README.md` and `docs/nest-scheduled-task-decorator.md`.
 
 ### Changed
-- `TasksQueueModule` now wires a discovery registrar that registers decorated methods before pool startup while preserving existing `TasksPoolsService.registerWorker(...)` semantics.
-- `TasksQueueModule` now also provisions periodic tasks declared with `@ScheduledTask(...)` during module initialization, before pool startup.
+- `TasksQueueModule` now wires discovery registrars that register decorated methods before pool startup while preserving existing `TasksPoolsService.registerWorker(...)` semantics.
+- `@ScheduledTask(...)` now auto-registers the decorated method as the queue worker and supports optional `pool` selection.
+- `@ScheduledTask(...)` worker registration now runs on module init, while schedule provisioning runs on application bootstrap to avoid early schema access.
+- Combining `@ScheduledTask(...)` and `@Worker(...)` on the same method now throws an initialization error.
 
 ## 1.7.6
 

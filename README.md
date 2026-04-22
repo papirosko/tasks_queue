@@ -270,18 +270,19 @@ Constraints:
 
 ### Register periodic schedules with `@ScheduledTask(...)` decorator
 
-You can declare periodic task provisioning directly on provider methods.
+You can declare periodic workers with periodic task provisioning directly on
+provider methods.
 
 ```ts
 import { Injectable } from "@nestjs/common";
-import { ScheduledTask, TaskContext, Worker } from "@penkov/tasks_queue";
+import { ScheduledTask, TaskContext } from "@penkov/tasks_queue";
 
 @Injectable()
 export class BillingWorkers {
-  @Worker({ queue: "billing-sync" })
   @ScheduledTask({
     name: "billing-sync-cron",
     queue: "billing-sync",
+    pool: "billing",
     cron: "0 */5 * * * *",
     replaceExisting: true,
     payload: { source: "bootstrap" },
@@ -301,11 +302,12 @@ Supported schedule forms:
 
 Important notes:
 
-- `@ScheduledTask(...)` only provisions periodic rows; it does not register a queue worker by itself
+- `@ScheduledTask(...)` registers the decorated method as the queue worker and provisions periodic rows
+- `pool` is optional and defaults to `default`
 - periodic names are deduplicated by `name`
 - when `replaceExisting` is omitted or `false`, name conflicts are ignored
 - when `replaceExisting` is `true`, pending periodic definitions with the same name are replaced
-- if a method has both `@Worker` and `@ScheduledTask`, their `queue` values must match
+- `@ScheduledTask` cannot be combined with `@Worker` on the same method
 
 ### When to use multiple pools
 
