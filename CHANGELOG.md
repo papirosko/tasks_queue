@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.7.9
+
+### Added
+- Added `ManagedWorkflowTask` as a policy-oriented orchestration base class on top of `MultiStepTask`.
+- Added constructor-only `maxRuns` configuration for managed workflows.
+- Added integration coverage for managed workflow scenarios: happy path, invalid run actions, child terminal failure, allow-failure continuation, invalid `runCount`, and `maxRuns` boundaries.
+- Added unit coverage for `maxRuns` defaults and constructor validation rules.
+- Added dedicated documentation for managed workflows in `docs/managed-workflow-task.md`.
+
+### Changed
+- Changed managed workflow `maxRuns` validation to require a positive integer.
+- Changed managed workflow `runCount` validation to require a non-negative integer with explicit failure on invalid payload state.
+- Updated README and multi-step workflow docs to include `ManagedWorkflowTask` and reflect current orchestration semantics.
+
 ## 1.7.8
 
 ### Added

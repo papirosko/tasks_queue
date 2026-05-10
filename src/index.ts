@@ -15,6 +15,7 @@ export {
 export * from "./active-child-state.js";
 export * from "./multi-step-payload.js";
 export * from "./multi-step-task.js";
+export * from "./managed-workflow-task.js";
 export * from "./sequential-task.js";
 export * from "./manage.model.js";
 export * from "./manage-tasks-queue.service.js";

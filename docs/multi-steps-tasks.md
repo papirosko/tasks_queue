@@ -1,11 +1,12 @@
 # Multi-step tasks
 
-This library provides two base classes for stateful parent-child workflows:
+This library provides three base classes for stateful parent-child workflows:
 
 - `MultiStepTask`
+- `ManagedWorkflowTask`
 - `SequentialTask`
 
-Both abstractions are built on top of the same runtime contract:
+These abstractions are built on top of the same runtime contract:
 
 - a parent task may request exactly one child via `context.spawnChild(...)`
 - the parent is then moved to `blocked`
@@ -88,6 +89,16 @@ Confirmed by integration tests:
 - When the parent is resumed after child completion, that resumed parent run is a new parent attempt and may succeed or fail independently.
 
 This means a child may consume multiple attempts without affecting parent attempts, and a resumed parent may still fail even after a successful child.
+
+## `ManagedWorkflowTask`
+
+`ManagedWorkflowTask` is an orchestration base class built on top of
+`MultiStepTask` for full parent-side control over child task creation and
+ordering.
+
+Detailed guide:
+
+- [docs/managed-workflow-task.md](managed-workflow-task.md)
 
 ## `MultiStepTask`
 
@@ -259,6 +270,7 @@ Covered by integration tests:
 - the failure is recorded as a parent failure, not a child failure
 
 This is expected: parent continuation is its own execution pass with its own attempt accounting.
+
 
 ## Example: branching `MultiStepTask`
 

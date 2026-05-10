@@ -481,6 +481,7 @@ context.spawnChild({
 Use:
 
 - `MultiStepTask` for custom branching workflows
+- `ManagedWorkflowTask` for full parent-side control over spawned tasks (dynamic count and order)
 - `SequentialTask` for linear happy-path workflows
 - `MultiStepPayload` as the required parent payload envelope
 
@@ -489,9 +490,21 @@ spawn a child task. If a step returns without calling `context.spawnChild(...)`,
 the workflow automatically advances to the next configured step in the same
 parent execution.
 
+`ManagedWorkflowTask` is a policy wrapper on top of `MultiStepTask` for
+orchestrators where parent code fully controls which child tasks are spawned
+and in what order, while each run must explicitly do one of two things:
+
+- schedule a child (`context.spawnChild(...)`), or
+- finish with output (`context.submitResult(...)`).
+
+It also tracks technical parent-run counters in `workflowPayload` (`runCount`)
+so business data remains isolated in `userPayload` (persisted on successful
+parent transitions).
+
 Detailed guide:
 
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md)
+- [docs/managed-workflow-task.md](docs/managed-workflow-task.md)
 
 ## Stalled Tasks and Heartbeat
 
@@ -619,6 +632,7 @@ Its metrics sync registers queue/status gauges using sanitized metric names deri
 ## Additional Documentation
 
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md): detailed guide for `MultiStepTask`, `SequentialTask`, child completion, failure handling, and payload shape
+- [docs/managed-workflow-task.md](docs/managed-workflow-task.md): detailed guide for `ManagedWorkflowTask`, full child-task control model, and orchestrator examples
 - [docs/heartbeat.md](docs/heartbeat.md): detailed guide for heartbeat behavior and stalled detection
 - [docs/nest-worker-decorator.md](docs/nest-worker-decorator.md): declarative NestJS worker registration using `@Worker(...)`
 - [docs/nest-scheduled-task-decorator.md](docs/nest-scheduled-task-decorator.md): declarative periodic task provisioning via `@ScheduledTask(...)`
