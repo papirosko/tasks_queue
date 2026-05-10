@@ -14,6 +14,7 @@ export default {
   },
   extensionsToTreatAsEsm: [".ts"],
   testMatch: ["**/test/integration/**/*.test.ts"],
+  setupFiles: ["./test/integration/log4js-test-autoconfig.setup.ts"],
   globalSetup: "./test/integration/global-setup.ts",
   globalTeardown: "./test/integration/global-teardown.ts",
   collectCoverage: true,
