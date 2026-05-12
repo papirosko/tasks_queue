@@ -72,6 +72,114 @@ describe("ManageTasksQueueService integration", () => {
     expect(task.get.repeatType.isDefined).toBe(false);
   });
 
+  it("finds only descendants in a task children tree", async () => {
+    const rootTaskId = await test.tasksQueueService.schedule({
+      queue: "root",
+      payload: { tree: "target-root" },
+    });
+    const unrelatedRootTaskId = await test.tasksQueueService.schedule({
+      queue: "root",
+      payload: { tree: "unrelated-root" },
+    });
+
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              started = $2,
+              attempt = 1
+        where id = $3`,
+      [TaskStatus.in_progress, clock.now(), rootTaskId.get],
+    );
+    const childTaskId = await test.tasksQueueDao.blockParentAndScheduleChild(
+      rootTaskId.get,
+      {
+        queue: "child",
+        payload: { tree: "target-child" },
+      },
+      {
+        workflowPayload: { step: "child" },
+        userPayload: { root: true },
+      },
+      clock.now(),
+      clock.now(),
+    );
+
+    clock.advance(TimeUtils.second);
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              started = $2,
+              attempt = 1
+        where id = $3`,
+      [TaskStatus.in_progress, clock.now(), childTaskId.get],
+    );
+    const grandchildTaskId =
+      await test.tasksQueueDao.blockParentAndScheduleChild(
+        childTaskId.get,
+        {
+          queue: "grandchild",
+          payload: { tree: "target-grandchild" },
+        },
+        {
+          workflowPayload: { step: "grandchild" },
+          userPayload: { child: true },
+        },
+        clock.now(),
+        clock.now(),
+      );
+
+    clock.advance(TimeUtils.second);
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              started = $2,
+              attempt = 1
+        where id = $3`,
+      [TaskStatus.in_progress, clock.now(), unrelatedRootTaskId.get],
+    );
+    const unrelatedChildTaskId =
+      await test.tasksQueueDao.blockParentAndScheduleChild(
+        unrelatedRootTaskId.get,
+        {
+          queue: "child",
+          payload: { tree: "unrelated-child" },
+        },
+        {
+          workflowPayload: { step: "unrelated-child" },
+          userPayload: { unrelated: true },
+        },
+        clock.now(),
+        clock.now(),
+      );
+
+    const tree = await test.manageTasksQueueService.findChildrenTree(
+      rootTaskId.get,
+    );
+
+    expect(tree.map((task) => task.id).toArray).toEqual([
+      childTaskId.get,
+      grandchildTaskId.get,
+    ]);
+    expect(tree.exists((task) => task.id === rootTaskId.get)).toBe(false);
+    expect(tree.exists((task) => task.id === unrelatedRootTaskId.get)).toBe(
+      false,
+    );
+    expect(tree.exists((task) => task.id === unrelatedChildTaskId.get)).toBe(
+      false,
+    );
+    expect(tree.map((task) => task.parentId.orUndefined).toArray).toEqual([
+      rootTaskId.get,
+      childTaskId.get,
+    ]);
+    expect(tree.map((task) => task.queue).toArray).toEqual([
+      "child",
+      "grandchild",
+    ]);
+    expect(tree.lastOption.get.payload).toEqual({
+      tree: "target-grandchild",
+    });
+  });
+
   it("filters tasks by status and queue with pagination ordered by created desc", async () => {
     const firstTaskId = await test.tasksQueueService.schedule({
       queue: "email",

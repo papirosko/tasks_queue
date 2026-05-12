@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+### Added
+- Added `ManageTasksQueueService.findChildrenTree(...)` for loading all direct and nested child tasks of a root task.
+- Added PostgreSQL integration coverage that verifies child tree lookup returns only descendants of the requested root and excludes unrelated branches.
+
 ## 1.7.9
 
 ### Added

@@ -75,6 +75,37 @@ export class ManageTasksQueueService {
   }
 
   /**
+   * Finds all descendant tasks for the provided root task.
+   *
+   * The root task itself is not included in the result; only direct and nested
+   * children are returned.
+   *
+   * @param rootTaskId root task identifier
+   * @returns descendant tasks ordered by id ascending
+   */
+  async findChildrenTree(rootTaskId: number): Promise<Collection<TaskDto>> {
+    const res = await this.pool.query(
+      `with recursive task_children as (
+                select *
+                from tasks_queue
+                where parent_id = $1
+
+                union all
+
+                select child.*
+                from tasks_queue child
+                         inner join task_children parent on parent.id = child.parent_id
+            )
+            select *
+            from task_children
+            order by id asc`,
+      [rootTaskId],
+    );
+
+    return Collection.from(res.rows).map((row) => this.mapTaskRow(row));
+  }
+
+  /**
    * Finds tasks using optional management filters.
    *
    * Supported filters currently include task status and queue name.
