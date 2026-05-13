@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+- Added pool runtime metrics for registered queue labels, slot usage, and polling loop health.
+- Added per-queue polling, fetch, and task lifecycle counters.
+- Added unit coverage for runtime metrics emitted through `application-metrics`.
+
 ## 1.8.0
 
 ### Added

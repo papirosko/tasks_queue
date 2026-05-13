@@ -72,6 +72,7 @@ export class TasksPoolsService {
           queueNotifier: (queueName: string) => this.notifyQueue(queueName),
         },
         this.clock,
+        p.name,
       ),
     ]);
     this.auxiliaryWorker = runAuxiliaryWorker

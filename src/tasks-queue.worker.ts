@@ -1,4 +1,4 @@
-import { mutable, none, option, Option, some, Try } from "scats";
+import { Collection, mutable, none, option, Option, some, Try } from "scats";
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import log4js from "log4js";
 import { MetricsService } from "application-metrics";
@@ -16,6 +16,7 @@ import {
 import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
 import { Clock, SystemClock } from "./clock.js";
+import { poolMetricName, queueMetricName } from "./metrics-utils.js";
 
 const logger = log4js.getLogger("TasksQueueWorker");
 
@@ -135,14 +136,14 @@ export class TasksQueueWorker {
     loopInterval: number = TimeUtils.minute,
     private readonly clock: Clock = new SystemClock(),
     queueNotifier?: (queueName: string) => void,
+    private readonly poolName: string = "default",
   ) {
     this.queueNotifier = option(queueNotifier).getOrElse(
       () => (queueName) => this.tasksScheduled(queueName),
     );
     this.pipeline = new TasksPipeline(
       concurrency,
-      () =>
-        this.tasksQueueDao.nextPending(this.workers.keySet, this.clock.now()),
+      () => this.pollNextTask(),
       () =>
         this.tasksQueueDao.peekNextStartAfter(
           this.workers.keySet,
@@ -151,6 +152,7 @@ export class TasksQueueWorker {
       (t) => this.processNextTask(t),
       loopInterval,
       this.clock,
+      this.poolName,
     );
   }
 
@@ -165,10 +167,7 @@ export class TasksQueueWorker {
   }
 
   async runOnce(): Promise<void> {
-    const task = await this.tasksQueueDao.nextPending(
-      this.workers.keySet,
-      this.clock.now(),
-    );
+    const task = await this.pollNextTask();
     await task.mapPromise(async (scheduledTask) => {
       await this.processNextTask(scheduledTask);
       return scheduledTask;
@@ -180,6 +179,7 @@ export class TasksQueueWorker {
       logger.warn(`Replacing existing worker for queue: ${queueName}`);
     }
     this.workers.put(queueName, worker);
+    this.updatePoolQueuesLabel();
   }
 
   tasksScheduled(queueName: string): void {
@@ -200,6 +200,32 @@ export class TasksQueueWorker {
       this.clock.now(),
     );
     parent.foreach((p) => this.queueNotifier(p.queue));
+  }
+
+  private async pollNextTask(): Promise<Option<ScheduledTask>> {
+    this.updatePoolQueuesLabel();
+    this.workers.keySet.foreach((queueName) => {
+      MetricsService.counter(queueMetricName(queueName, "poll_total")).inc();
+    });
+    const task = await this.tasksQueueDao.nextPending(
+      this.workers.keySet,
+      this.clock.now(),
+    );
+    task.foreach((scheduledTask) => {
+      MetricsService.counter(
+        queueMetricName(scheduledTask.queue, "fetched_total"),
+      ).inc();
+    });
+    return task;
+  }
+
+  private updatePoolQueuesLabel(): void {
+    MetricsService.label(
+      poolMetricName(this.poolName, "queues"),
+      Collection.from(this.workers.keySet.toArray)
+        .sort((a, b) => a.localeCompare(b))
+        .mkString(","),
+    );
   }
 
   /**
@@ -264,6 +290,9 @@ export class TasksQueueWorker {
     MetricsService.counter("tasks_queue_started").inc();
     await this.workers.get(task.queue).match({
       some: async (worker) => {
+        MetricsService.counter(
+          queueMetricName(task.queue, "task_started_total"),
+        ).inc();
         const context = new RuntimeTaskContext(
           this.tasksQueueDao,
           task.id,
@@ -289,6 +318,9 @@ export class TasksQueueWorker {
             return;
           }
           MetricsService.counter("tasks_queue_processed").inc();
+          MetricsService.counter(
+            queueMetricName(task.queue, "task_finished_total"),
+          ).inc();
           (
             await Try.promise(() => worker.completed(task.id, task.payload))
           ).tapFailure((e) =>
@@ -317,6 +349,9 @@ export class TasksQueueWorker {
           ) {
             await this.wakeBlockedParent(task.id);
           }
+          MetricsService.counter(
+            queueMetricName(task.queue, `task_failed_${finalStatus}_total`),
+          ).inc();
           (
             await Try.promise(() =>
               worker.failed(task.id, task.payload, finalStatus, e),
@@ -336,6 +371,9 @@ export class TasksQueueWorker {
       },
       none: async () => {
         MetricsService.counter("tasks_queue_skipped_no_worker").inc();
+        MetricsService.counter(
+          queueMetricName(task.queue, "task_skipped_no_worker_total"),
+        ).inc();
         logger.info(
           `Failed to process task (id=${task.id}) in queue=${task.queue}: no suitable worker found`,
         );

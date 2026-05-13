@@ -55,6 +55,7 @@ export class TasksQueueService {
     manageTasksQueueService: ManageTasksQueueService,
     config: TasksQueueConfig,
     private readonly clock: Clock = new SystemClock(),
+    private readonly poolName: string = "default",
   ) {
     this.worker = new TasksQueueWorker(
       this.tasksQueueDao,
@@ -62,6 +63,7 @@ export class TasksQueueService {
       config.loopInterval,
       this.clock,
       config.queueNotifier,
+      this.poolName,
     );
     if (config.runAuxiliaryWorker) {
       this.auxiliaryWorker = some(

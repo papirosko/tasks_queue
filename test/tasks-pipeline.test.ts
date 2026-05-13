@@ -2,6 +2,7 @@ import { afterEach, beforeEach, jest } from "@jest/globals";
 import { none, some } from "scats";
 import { TasksPipeline } from "../src/tasks-pipeline.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
+import { MetricsService } from "application-metrics";
 
 const createTask = (id: number): ScheduledTask => ({
   id,
@@ -45,6 +46,8 @@ describe("TasksPipeline", () => {
       peekNextStartAfter,
       processTask,
       10,
+      undefined,
+      "pipeline_start",
     );
 
     pipeline.start();
@@ -71,6 +74,8 @@ describe("TasksPipeline", () => {
       peekNextStartAfter,
       processTask,
       10,
+      undefined,
+      "pipeline_concurrency",
     );
 
     const immediateSpy = jest
@@ -109,6 +114,8 @@ describe("TasksPipeline", () => {
       peekNextStartAfter,
       processTask,
       100,
+      undefined,
+      "pipeline_peek",
     );
 
     pipeline.start();
@@ -133,6 +140,8 @@ describe("TasksPipeline", () => {
       peekNextStartAfter,
       processTask,
       100,
+      undefined,
+      "pipeline_trigger",
     );
 
     pipeline.triggerLoop();
@@ -141,5 +150,84 @@ describe("TasksPipeline", () => {
 
     expect(pollNextTask).toHaveBeenCalled();
     await pipeline.stop();
+  });
+
+  it("exports slot and loop gauges for the pool", async () => {
+    const pollNextTask = jest.fn(async () => none);
+    const peekNextStartAfter = jest.fn(async () => none);
+    const processTask = jest.fn(async () => undefined);
+    const pipeline = new TasksPipeline(
+      2,
+      pollNextTask,
+      peekNextStartAfter,
+      processTask,
+      100,
+      undefined,
+      "pipeline_gauges",
+    );
+
+    await (pipeline as any).loop();
+    const metrics = await MetricsService.toJson();
+
+    expect(metrics.gauges["tasks_queue_pool_pipeline_gauges_slots_total"]).toBe(
+      2,
+    );
+    expect(metrics.gauges["tasks_queue_pool_pipeline_gauges_slots_busy"]).toBe(
+      0,
+    );
+    expect(
+      metrics.gauges["tasks_queue_pool_pipeline_gauges_loop_running"],
+    ).toBe(0);
+    expect(
+      metrics.gauges[
+        "tasks_queue_pool_pipeline_gauges_loop_last_poll_started_at"
+      ],
+    ).toBe(0);
+    expect(
+      metrics.gauges[
+        "tasks_queue_pool_pipeline_gauges_loop_last_poll_finished_at"
+      ],
+    ).toBe(0);
+    expect(
+      metrics.counters[
+        "tasks_queue_pool_pipeline_gauges_loop_poll_started_total"
+      ],
+    ).toBe(1);
+    expect(
+      metrics.counters[
+        "tasks_queue_pool_pipeline_gauges_loop_poll_finished_total"
+      ],
+    ).toBe(1);
+  });
+
+  it("reports a currently stuck polling loop", async () => {
+    const deferred = createDeferred<any>();
+    const pollNextTask = jest.fn(async () => deferred.promise);
+    const peekNextStartAfter = jest.fn(async () => none);
+    const processTask = jest.fn(async () => undefined);
+    const pipeline = new TasksPipeline(
+      1,
+      pollNextTask,
+      peekNextStartAfter,
+      processTask,
+      100,
+      undefined,
+      "pipeline_stuck",
+    );
+
+    const loopPromise = (pipeline as any).loop();
+    await Promise.resolve();
+    jest.setSystemTime(new Date(250));
+
+    const runningMetrics = await MetricsService.toJson();
+    expect(
+      runningMetrics.gauges["tasks_queue_pool_pipeline_stuck_loop_running"],
+    ).toBe(1);
+    expect(
+      runningMetrics.gauges["tasks_queue_pool_pipeline_stuck_loop_running_ms"],
+    ).toBe(250);
+
+    deferred.resolve(none);
+    await loopPromise;
   });
 });

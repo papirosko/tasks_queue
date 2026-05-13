@@ -3,6 +3,8 @@ import log4js from "log4js";
 import { ScheduledTask } from "./tasks-model.js";
 import { TimeUtils } from "./time-utils.js";
 import { Clock, SystemClock } from "./clock.js";
+import { MetricsService } from "application-metrics";
+import { poolMetricName } from "./metrics-utils.js";
 
 const defaultLoopInterval = TimeUtils.minute;
 
@@ -31,6 +33,18 @@ const noop: () => void = () => {
   // nothing to do
 };
 
+export interface TasksPipelineState {
+  maxConcurrentTasks: number;
+  tasksInProcess: number;
+  loopRunning: boolean;
+  loopStartedAt: number;
+  lastPollStartedAt: number;
+  lastPollFinishedAt: number;
+  lastSuccessfulPollAt: number;
+  lastPollDurationMs: number;
+  nextLoopTime: number;
+}
+
 /**
  * Class responsible for polling and processing tasks from a queue.
  * Tasks are processed concurrently, with a limit on the maximum number of concurrently running tasks.
@@ -43,6 +57,11 @@ export class TasksPipeline {
   private stopRequested = false;
   private tasksCountListener: (n: number) => void = noop;
   private readonly loopTimer: () => Promise<void>;
+  private loopStartedAt = 0;
+  private lastPollStartedAt = 0;
+  private lastPollFinishedAt = 0;
+  private lastSuccessfulPollAt = 0;
+  private lastPollDurationMs = 0;
 
   /**
    * Creates an instance of TasksPipeline.
@@ -60,7 +79,9 @@ export class TasksPipeline {
     private readonly processTask: (t: ScheduledTask) => Promise<void>,
     private readonly loopInterval = defaultLoopInterval,
     private readonly clock: Clock = new SystemClock(),
+    private readonly poolName: string = "default",
   ) {
+    this.registerMetrics();
     this.loopTimer = async () => {
       this.periodicTaskFetcher = null;
       let sleepInterval = this.loopInterval;
@@ -91,6 +112,20 @@ export class TasksPipeline {
 
   async runOnce(): Promise<void> {
     await this.loop();
+  }
+
+  getState(): TasksPipelineState {
+    return {
+      maxConcurrentTasks: this.maxConcurrentTasks,
+      tasksInProcess: this.tasksInProcess,
+      loopRunning: this.loopRunning,
+      loopStartedAt: this.loopStartedAt,
+      lastPollStartedAt: this.lastPollStartedAt,
+      lastPollFinishedAt: this.lastPollFinishedAt,
+      lastSuccessfulPollAt: this.lastSuccessfulPollAt,
+      lastPollDurationMs: this.lastPollDurationMs,
+      nextLoopTime: this.nextLoopTime,
+    };
   }
 
   /**
@@ -129,7 +164,13 @@ export class TasksPipeline {
       return this.loopInterval;
     }
     this.loopRunning = true;
+    this.loopStartedAt = this.nowMs();
+    this.lastPollStartedAt = this.loopStartedAt;
+    MetricsService.counter(
+      poolMetricName(this.poolName, "loop_poll_started_total"),
+    ).inc();
     let sleepInterval = this.loopInterval;
+    let completedSuccessfully = false;
     try {
       let nextOp = PipelineNextOperationFactory.pollNext;
       while (nextOp.type !== PipelineNextOperationType.Sleep) {
@@ -143,8 +184,19 @@ export class TasksPipeline {
         }
       }
       sleepInterval = Math.min(nextOp.delayMs, this.loopInterval);
+      completedSuccessfully = true;
     } finally {
+      const finishedAt = this.nowMs();
+      this.lastPollFinishedAt = finishedAt;
+      this.lastPollDurationMs = finishedAt - this.loopStartedAt;
+      if (completedSuccessfully) {
+        this.lastSuccessfulPollAt = finishedAt;
+      }
       this.loopRunning = false;
+      this.loopStartedAt = 0;
+      MetricsService.counter(
+        poolMetricName(this.poolName, "loop_poll_finished_total"),
+      ).inc();
     }
 
     const nextTriggerTime = this.nowMs() + sleepInterval;
@@ -233,5 +285,43 @@ export class TasksPipeline {
 
   private nowMs(): number {
     return this.clock.now().getTime();
+  }
+
+  private registerMetrics(): void {
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "slots_total"),
+      () => this.maxConcurrentTasks,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "slots_busy"),
+      () => this.tasksInProcess,
+    );
+    MetricsService.gauge(poolMetricName(this.poolName, "loop_running"), () =>
+      this.loopRunning ? 1 : 0,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_running_ms"),
+      () => (this.loopRunning ? this.nowMs() - this.loopStartedAt : 0),
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_last_poll_duration_ms"),
+      () => this.lastPollDurationMs,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_last_poll_started_at"),
+      () => this.lastPollStartedAt,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_last_poll_finished_at"),
+      () => this.lastPollFinishedAt,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_last_successful_poll_at"),
+      () => this.lastSuccessfulPollAt,
+    );
+    MetricsService.gauge(
+      poolMetricName(this.poolName, "loop_next_at"),
+      () => this.nextLoopTime,
+    );
   }
 }

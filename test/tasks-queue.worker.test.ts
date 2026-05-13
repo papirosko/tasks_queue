@@ -16,6 +16,8 @@ import { TimeUtils } from "../src/time-utils.js";
 jest.mock("application-metrics", () => ({
   MetricsService: {
     counter: jest.fn(() => ({ inc: jest.fn() })),
+    gauge: jest.fn(),
+    label: jest.fn(),
   },
 }));
 
