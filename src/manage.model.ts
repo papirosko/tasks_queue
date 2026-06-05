@@ -42,6 +42,10 @@ export class TaskDto {
      */
     readonly started: Option<Date>,
     /**
+     * Last heartbeat time for the currently persisted attempt, if any.
+     */
+    readonly lastHeartbeat: Option<Date>,
+    /**
      * Terminal or retry-transition finish time, if the task is not currently active.
      */
     readonly finished: Option<Date>,
@@ -136,6 +140,7 @@ export enum TaskDateSortField {
   created = "created",
   initialStart = "initial_start",
   started = "started",
+  lastHeartbeat = "last_heartbeat",
   finished = "finished",
   startAfter = "start_after",
 }
@@ -339,6 +344,12 @@ export class TaskView {
   started?: number;
 
   /**
+   * Last heartbeat time as Unix milliseconds, if the task is active and has reported heartbeat.
+   */
+  @ApiProperty({ required: false })
+  lastHeartbeat?: number;
+
+  /**
    * Finish or retry-transition time as Unix milliseconds, if present.
    */
   @ApiProperty({ required: false })
@@ -454,6 +465,7 @@ export class TaskView {
     res.created = dto.created.getTime();
     res.initialStart = dto.initialStart.getTime();
     res.started = dto.started.map((d) => d.getTime()).orUndefined;
+    res.lastHeartbeat = dto.lastHeartbeat.map((d) => d.getTime()).orUndefined;
     res.finished = dto.finished.map((d) => d.getTime()).orUndefined;
     res.status = dto.status;
     res.missedRunStrategy = dto.missedRunStrategy;

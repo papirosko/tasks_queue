@@ -69,6 +69,7 @@ describe("ManageTasksQueueService integration", () => {
     expect(Number(task.get.timeout)).toBe(TimeUtils.minute * 5);
     expect(Number(task.get.maxAttempts)).toBe(3);
     expect(task.get.attempt).toBe(0);
+    expect(task.get.lastHeartbeat.isDefined).toBe(false);
     expect(task.get.startAfter.orUndefined).toEqual(startAfter);
     expect(task.get.payload).toEqual({ userId: 42 });
     expect(task.get.result).toBeNull();
@@ -403,6 +404,58 @@ describe("ManageTasksQueueService integration", () => {
       unfinishedTaskId.get,
     ]);
     expect(page.items.lastOption.get.finished.isDefined).toBe(false);
+  });
+
+  it("sorts task search results by nullable last heartbeat date with nulls last", async () => {
+    const firstTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 1 },
+    });
+    const secondTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 2 },
+    });
+    const noHeartbeatTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 3 },
+    });
+    const earlyHeartbeat = new Date(baseTime.getTime() + TimeUtils.minute);
+    const lateHeartbeat = new Date(baseTime.getTime() + TimeUtils.minute * 2);
+
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              started = $2,
+              last_heartbeat = $3
+        where id = $4`,
+      [TaskStatus.in_progress, baseTime, lateHeartbeat, firstTaskId.get],
+    );
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              started = $2,
+              last_heartbeat = $3
+        where id = $4`,
+      [TaskStatus.in_progress, baseTime, earlyHeartbeat, secondTaskId.get],
+    );
+
+    const page = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      sortBy: TaskDateSortField.lastHeartbeat,
+      sortDirection: TaskSortDirection.asc,
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(page.items.map((task) => task.id).toArray).toEqual([
+      secondTaskId.get,
+      firstTaskId.get,
+      noHeartbeatTaskId.get,
+    ]);
+    expect(page.items.headOption.get.lastHeartbeat.orUndefined).toEqual(
+      earlyHeartbeat,
+    );
+    expect(page.items.lastOption.get.lastHeartbeat.isDefined).toBe(false);
   });
 
   it("updates editable runtime fields for pending task", async () => {

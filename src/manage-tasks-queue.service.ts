@@ -35,6 +35,7 @@ export class ManageTasksQueueService {
       row["created"],
       row["initial_start"],
       option(row["started"]),
+      option(row["last_heartbeat"]),
       option(row["finished"]),
       row["status"],
       row["missed_runs_strategy"],

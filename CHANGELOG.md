@@ -5,6 +5,7 @@
 ### Added
 - Added `isPeriodic` filtering to `ManageTasksQueueService.findByParameters(...)`.
 - Added date-field sorting options for management task search results.
+- Added last heartbeat to management task DTOs and search sorting.
 - Added task id sorting for management task search results.
 - Added integration coverage for periodic filtering and management search sorting.
 
