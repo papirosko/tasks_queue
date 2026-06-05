@@ -5,6 +5,8 @@ import {
   FindTasksParameters,
   QueueStat,
   TaskDto,
+  TaskDateSortField,
+  TaskSortDirection,
   TasksCount,
   TasksResult,
   UpdatePendingPeriodicScheduleDetails,
@@ -108,7 +110,8 @@ export class ManageTasksQueueService {
   /**
    * Finds tasks using optional management filters.
    *
-   * Supported filters currently include task status and queue name.
+   * Supported filters include task status, queue name, and periodic flag.
+   * Result ordering supports whitelisted task date fields.
    *
    * @param params search and pagination parameters
    * @returns paginated tasks result
@@ -125,8 +128,27 @@ export class ManageTasksQueueService {
       queryParams.append(queue);
       parts.append(`queue = $${queryParams.size}`);
     });
+    option(params.isPeriodic).foreach((isPeriodic) => {
+      parts.append(isPeriodic ? "name is not null" : "name is null");
+    });
 
     const where = parts.nonEmpty ? `where ${parts.mkString(" and ")}` : "";
+    const sortBy = option(params.sortBy).getOrElseValue(
+      TaskDateSortField.created,
+    );
+    const sortDirection = option(params.sortDirection).getOrElseValue(
+      TaskSortDirection.desc,
+    );
+
+    if (!Object.values(TaskDateSortField).includes(sortBy)) {
+      throw new Error(`Unsupported task date sort field: ${sortBy}`);
+    }
+    if (
+      sortDirection !== TaskSortDirection.asc &&
+      sortDirection !== TaskSortDirection.desc
+    ) {
+      throw new Error(`Unsupported task sort direction: ${sortDirection}`);
+    }
     const paginationParams = queryParams.appendedAll([
       params.limit,
       params.offset,
@@ -135,7 +157,7 @@ export class ManageTasksQueueService {
     const res = await this.pool.query(
       `select *
              from tasks_queue ${where}
-             order by created desc
+             order by ${sortBy} ${sortDirection} nulls last
              limit $${queryParams.size + 1} offset $${queryParams.size + 2}`,
       paginationParams.toArray,
     );

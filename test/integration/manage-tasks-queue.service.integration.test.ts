@@ -12,6 +12,10 @@ import {
   TaskPeriodType,
   TaskStatus,
 } from "../../src/tasks-model.js";
+import {
+  TaskDateSortField,
+  TaskSortDirection,
+} from "../../src/manage.model.js";
 import { TimeUtils } from "../../src/time-utils.js";
 import { BaseIntegrationTest } from "./base-integration-test.js";
 import { ManualClock } from "./support/manual-clock.js";
@@ -220,6 +224,156 @@ describe("ManageTasksQueueService integration", () => {
     expect(page.items.map((task) => task.payload).toArray).toEqual([
       { seq: 2 },
     ]);
+  });
+
+  it("filters tasks by periodic flag using task name presence", async () => {
+    const oneTimeEmailTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { kind: "one-time-email" },
+    });
+    clock.advance(TimeUtils.second);
+    const periodicEmailTaskId =
+      await test.tasksQueueService.scheduleAtFixedRate({
+        queue: "email",
+        name: "email-report",
+        period: TimeUtils.minute,
+        payload: { kind: "periodic-email" },
+      });
+    clock.advance(TimeUtils.second);
+    await test.tasksQueueService.scheduleAtFixedRate({
+      queue: "video",
+      name: "video-report",
+      period: TimeUtils.minute,
+      payload: { kind: "periodic-video" },
+    });
+
+    const periodicPage = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      isPeriodic: true,
+      offset: 0,
+      limit: 10,
+    });
+    const oneTimePage = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      isPeriodic: false,
+      offset: 0,
+      limit: 10,
+    });
+    const allEmailPage = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(periodicPage.total).toBe("1");
+    expect(periodicPage.items.map((task) => task.id).toArray).toEqual([
+      periodicEmailTaskId.get,
+    ]);
+    expect(periodicPage.items.headOption.get.name.orUndefined).toBe(
+      "email-report",
+    );
+
+    expect(oneTimePage.total).toBe("1");
+    expect(oneTimePage.items.map((task) => task.id).toArray).toEqual([
+      oneTimeEmailTaskId.get,
+    ]);
+    expect(oneTimePage.items.headOption.get.name.isDefined).toBe(false);
+
+    expect(allEmailPage.total).toBe("2");
+    expect(allEmailPage.items.map((task) => task.id).toArray).toEqual([
+      periodicEmailTaskId.get,
+      oneTimeEmailTaskId.get,
+    ]);
+  });
+
+  it("sorts task search results by created date in requested direction", async () => {
+    const firstTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 1 },
+    });
+    clock.advance(TimeUtils.second);
+    const secondTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 2 },
+    });
+    clock.advance(TimeUtils.second);
+    const thirdTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 3 },
+    });
+
+    const ascendingPage = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      sortBy: TaskDateSortField.created,
+      sortDirection: TaskSortDirection.asc,
+      offset: 0,
+      limit: 10,
+    });
+    const descendingPage = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      sortBy: TaskDateSortField.created,
+      sortDirection: TaskSortDirection.desc,
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(ascendingPage.items.map((task) => task.id).toArray).toEqual([
+      firstTaskId.get,
+      secondTaskId.get,
+      thirdTaskId.get,
+    ]);
+    expect(descendingPage.items.map((task) => task.id).toArray).toEqual([
+      thirdTaskId.get,
+      secondTaskId.get,
+      firstTaskId.get,
+    ]);
+  });
+
+  it("sorts task search results by nullable finished date with nulls last", async () => {
+    const firstTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 1 },
+    });
+    const secondTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 2 },
+    });
+    const unfinishedTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 3 },
+    });
+    const earlyFinish = new Date(baseTime.getTime() + TimeUtils.minute);
+    const lateFinish = new Date(baseTime.getTime() + TimeUtils.minute * 2);
+
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              finished = $2
+        where id = $3`,
+      [TaskStatus.finished, lateFinish, firstTaskId.get],
+    );
+    await test.db.query(
+      `update tasks_queue
+          set status = $1,
+              finished = $2
+        where id = $3`,
+      [TaskStatus.finished, earlyFinish, secondTaskId.get],
+    );
+
+    const page = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      sortBy: TaskDateSortField.finished,
+      sortDirection: TaskSortDirection.asc,
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(page.items.map((task) => task.id).toArray).toEqual([
+      secondTaskId.get,
+      firstTaskId.get,
+      unfinishedTaskId.get,
+    ]);
+    expect(page.items.lastOption.get.finished.isDefined).toBe(false);
   });
 
   it("updates editable runtime fields for pending task", async () => {

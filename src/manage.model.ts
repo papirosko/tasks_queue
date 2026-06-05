@@ -129,6 +129,25 @@ export class TasksResult {
 }
 
 /**
+ * Date fields supported by {@link FindTasksParameters.sortBy}.
+ */
+export enum TaskDateSortField {
+  created = "created",
+  initialStart = "initial_start",
+  started = "started",
+  finished = "finished",
+  startAfter = "start_after",
+}
+
+/**
+ * Sort direction supported by task search.
+ */
+export enum TaskSortDirection {
+  asc = "asc",
+  desc = "desc",
+}
+
+/**
  * Search parameters for listing tasks from the management API.
  */
 export interface FindTasksParameters {
@@ -141,6 +160,27 @@ export interface FindTasksParameters {
    * Optional queue name filter.
    */
   queue?: string;
+
+  /**
+   * Optional periodic task filter.
+   *
+   * Periodic tasks are identified by a non-null unique `name`.
+   */
+  isPeriodic?: boolean;
+
+  /**
+   * Optional date field to order the result by.
+   *
+   * Defaults to {@link TaskDateSortField.created}.
+   */
+  sortBy?: TaskDateSortField;
+
+  /**
+   * Optional sort direction.
+   *
+   * Defaults to {@link TaskSortDirection.desc}.
+   */
+  sortDirection?: TaskSortDirection;
 
   /**
    * Pagination offset.

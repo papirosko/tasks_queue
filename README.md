@@ -579,6 +579,9 @@ const task = await manageTasksQueueService.findById(taskId);
 const page = await manageTasksQueueService.findByParameters({
   status: TaskStatus.error,
   queue: "send-email",
+  isPeriodic: false,
+  sortBy: TaskDateSortField.finished,
+  sortDirection: TaskSortDirection.desc,
   offset: 0,
   limit: 50,
 });
