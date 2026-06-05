@@ -129,9 +129,10 @@ export class TasksResult {
 }
 
 /**
- * Date fields supported by {@link FindTasksParameters.sortBy}.
+ * Fields supported by {@link FindTasksParameters.sortBy}.
  */
 export enum TaskDateSortField {
+  id = "id",
   created = "created",
   initialStart = "initial_start",
   started = "started",
@@ -169,7 +170,7 @@ export interface FindTasksParameters {
   isPeriodic?: boolean;
 
   /**
-   * Optional date field to order the result by.
+   * Optional field to order the result by.
    *
    * Defaults to {@link TaskDateSortField.created}.
    */

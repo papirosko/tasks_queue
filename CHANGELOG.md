@@ -1,14 +1,19 @@
 # Changelog
 
+## 1.9.1
+
+### Added
+- Added `isPeriodic` filtering to `ManageTasksQueueService.findByParameters(...)`.
+- Added date-field sorting options for management task search results.
+- Added task id sorting for management task search results.
+- Added integration coverage for periodic filtering and management search sorting.
+
 ## 1.9.0
 
 ### Added
 - Added pool runtime metrics for registered queue labels, slot usage, and polling loop health.
 - Added per-queue polling, fetch, and task lifecycle counters.
 - Added unit coverage for runtime metrics emitted through `application-metrics`.
-- Added `isPeriodic` filtering to `ManageTasksQueueService.findByParameters(...)`.
-- Added date-field sorting options for management task search results.
-- Added integration coverage for periodic filtering and management search sorting.
 
 ## 1.8.0
 

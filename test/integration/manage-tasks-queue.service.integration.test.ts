@@ -329,6 +329,35 @@ describe("ManageTasksQueueService integration", () => {
     ]);
   });
 
+  it("sorts task search results by id in requested direction", async () => {
+    const firstTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 1 },
+    });
+    const secondTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 2 },
+    });
+    const thirdTaskId = await test.tasksQueueService.schedule({
+      queue: "email",
+      payload: { seq: 3 },
+    });
+
+    const page = await test.manageTasksQueueService.findByParameters({
+      queue: "email",
+      sortBy: TaskDateSortField.id,
+      sortDirection: TaskSortDirection.desc,
+      offset: 0,
+      limit: 10,
+    });
+
+    expect(page.items.map((task) => task.id).toArray).toEqual([
+      thirdTaskId.get,
+      secondTaskId.get,
+      firstTaskId.get,
+    ]);
+  });
+
   it("sorts task search results by nullable finished date with nulls last", async () => {
     const firstTaskId = await test.tasksQueueService.schedule({
       queue: "email",
