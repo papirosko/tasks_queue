@@ -227,7 +227,7 @@ describe("TasksQueueDao", () => {
     );
     expect(query).toHaveBeenCalledWith(expect.any(String), expect.any(Array));
     expect(
-      ((query.mock.calls[0] as unknown) as [string, unknown[]])[1],
+      (query.mock.calls[0] as unknown as [string, unknown[]])[1],
     ).toHaveLength(15);
   });
 
@@ -257,7 +257,7 @@ describe("TasksQueueDao", () => {
     );
     expect(query).toHaveBeenCalledWith(expect.any(String), expect.any(Array));
     expect(
-      ((query.mock.calls[0] as unknown) as [string, unknown[]])[1],
+      (query.mock.calls[0] as unknown as [string, unknown[]])[1],
     ).toHaveLength(16);
   });
 
