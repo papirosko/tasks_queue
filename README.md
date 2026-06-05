@@ -425,6 +425,7 @@ Conflict behavior:
 
 - default (`replaceExisting` omitted/false): `on conflict (name) do nothing`
 - replace mode (`replaceExisting=true`): upsert schedule configuration for the same `name`
+- replace mode preserves the existing `startAfter`/schedule anchor unless a new `startAfter` is passed explicitly
 - replace mode updates only pending periodic rows; non-pending conflicts are left unchanged
 
 ### Periodic task timeout semantics

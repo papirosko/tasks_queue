@@ -217,6 +217,7 @@ export class TasksQueueDao {
       throw new Error("Periodic task 'name' must be 20 characters or less");
     }
     const replaceExisting = option(task.replaceExisting).getOrElseValue(false);
+    const hasExplicitStartAfter = task.startAfter !== undefined;
 
     return await this.withClient(async (cl) => {
       const params = Collection.of<any>(
@@ -251,8 +252,8 @@ export class TasksQueueDao {
                      payload = excluded.payload,
                      timeout = excluded.timeout,
                      max_attempts = excluded.max_attempts,
-                     start_after = excluded.start_after,
-                     initial_start = excluded.initial_start,
+                     start_after = case when $16 then excluded.start_after else tasks_queue.start_after end,
+                     initial_start = case when $16 then excluded.initial_start else tasks_queue.initial_start end,
                      repeat_interval = excluded.repeat_interval,
                      cron_expression = excluded.cron_expression,
                      repeat_type = excluded.repeat_type,
@@ -274,7 +275,7 @@ export class TasksQueueDao {
              values ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13, $14, $15)
              on conflict (name) do nothing
              returning id`,
-        params,
+        replaceExisting ? params.concat(hasExplicitStartAfter) : params,
       );
       return Collection.from(res.rows).headOption.map((r) => r.id as number);
     });

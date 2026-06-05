@@ -225,6 +225,10 @@ describe("TasksQueueDao", () => {
       expect.stringContaining("on conflict (name) do nothing"),
       expect.arrayContaining(["cron-report", "reports"]),
     );
+    expect(query).toHaveBeenCalledWith(expect.any(String), expect.any(Array));
+    expect(
+      ((query.mock.calls[0] as unknown) as [string, unknown[]])[1],
+    ).toHaveLength(15);
   });
 
   it("replaces existing periodic config when replaceExisting is true", async () => {
@@ -250,6 +254,64 @@ describe("TasksQueueDao", () => {
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("where tasks_queue.status = $3"),
       expect.any(Array),
+    );
+    expect(query).toHaveBeenCalledWith(expect.any(String), expect.any(Array));
+    expect(
+      ((query.mock.calls[0] as unknown) as [string, unknown[]])[1],
+    ).toHaveLength(16);
+  });
+
+  it("keeps existing periodic timer on replace when startAfter is not explicit", async () => {
+    const now = new Date("2026-04-22T10:00:00.000Z");
+    const query = jest.fn(async () => ({ rows: [{ id: 77 }] }));
+    const { dao } = createDao(query);
+
+    await dao.schedulePeriodic(
+      {
+        name: "fixed-sync",
+        queue: "sync",
+        period: 60_000,
+        replaceExisting: true,
+      },
+      TaskPeriodType.fixed_rate,
+      now,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "start_after = case when $16 then excluded.start_after else tasks_queue.start_after end",
+      ),
+      expect.arrayContaining([false]),
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "initial_start = case when $16 then excluded.initial_start else tasks_queue.initial_start end",
+      ),
+      expect.any(Array),
+    );
+  });
+
+  it("replaces periodic timer when startAfter is explicit", async () => {
+    const now = new Date("2026-04-22T10:00:00.000Z");
+    const startAfter = new Date("2026-04-22T11:00:00.000Z");
+    const query = jest.fn(async () => ({ rows: [{ id: 77 }] }));
+    const { dao } = createDao(query);
+
+    await dao.schedulePeriodic(
+      {
+        name: "fixed-sync",
+        queue: "sync",
+        period: 60_000,
+        startAfter,
+        replaceExisting: true,
+      },
+      TaskPeriodType.fixed_rate,
+      now,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("on conflict (name) do update"),
+      expect.arrayContaining([startAfter, true]),
     );
   });
 
