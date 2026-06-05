@@ -368,6 +368,14 @@ export interface TaskStateSnapshot {
  */
 export const TASK_HEARTBEAT_THROTTLE_MS = 60_000;
 
+export function taskHeartbeatThrottleMs(timeout: number): number {
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    return TASK_HEARTBEAT_THROTTLE_MS;
+  }
+
+  return Math.min(TASK_HEARTBEAT_THROTTLE_MS, Math.max(1, timeout / 2));
+}
+
 /**
  * Signals a retryable task failure with payload replacement.
  *

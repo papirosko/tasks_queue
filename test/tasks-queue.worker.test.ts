@@ -385,6 +385,52 @@ describe("TasksQueueWorker", () => {
     expect(dao.ping).toHaveBeenCalledTimes(2);
   });
 
+  it("uses half of task timeout as heartbeat throttle when timeout is below two minutes", async () => {
+    const t0 = 1_000;
+    const throttle = TimeUtils.minute / 2;
+    const t1 = t0 + throttle - 1;
+    const t2 = t0 + throttle + 1;
+    const nowValues = new mutable.ArrayBuffer<number>();
+    nowValues
+      .append(t0)
+      .append(t0)
+      .append(t0)
+      .append(t1)
+      .append(t1)
+      .append(t2)
+      .append(t2)
+      .append(t2);
+    const clock: Clock = {
+      now: jest.fn(() => {
+        const nextValue = nowValues.headOption.getOrElseValue(t2);
+        if (nowValues.nonEmpty) {
+          nowValues.remove(0);
+        }
+        return new Date(nextValue);
+      }),
+    };
+    const dao = createDao();
+    const worker = new TasksQueueWorker(dao as any, 1, 10, clock);
+    const taskWorker = new TestWorker();
+    (taskWorker.process as any).mockImplementation(
+      async (_payload: any, context: TaskContext) => {
+        await context.ping();
+        await context.ping();
+        await context.ping();
+      },
+    );
+    worker.registerWorker("q", taskWorker);
+
+    await (worker as any).processNextTask(
+      createTask({
+        started: new Date(t0),
+        timeout: TimeUtils.minute,
+      }),
+    );
+
+    expect(dao.ping).toHaveBeenCalledTimes(2);
+  });
+
   it("fails the task when process returns after the timeout window", async () => {
     const nowValues = new mutable.ArrayBuffer<Date>();
     nowValues.append(new Date(TimeUtils.second + 1));

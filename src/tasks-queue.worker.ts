@@ -6,9 +6,9 @@ import { TasksPipeline } from "./tasks-pipeline.js";
 import {
   ScheduledTask,
   SpawnChildTaskDetails,
-  TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
   TaskFailed,
+  taskHeartbeatThrottleMs,
   TaskStateSnapshot,
   TaskStatus,
   TaskTimedOutError,
@@ -67,7 +67,7 @@ class RuntimeTaskContext implements TaskContext {
       this.lastHeartbeatAt
         .map(
           (lastHeartbeatAt) =>
-            now - lastHeartbeatAt < TASK_HEARTBEAT_THROTTLE_MS,
+            now - lastHeartbeatAt < taskHeartbeatThrottleMs(this.timeout),
         )
         .getOrElseValue(false)
     ) {

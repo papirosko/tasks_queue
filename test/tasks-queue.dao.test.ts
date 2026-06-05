@@ -2,6 +2,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { some } from "scats";
 import { TasksQueueDao } from "../src/tasks-queue.dao.js";
 import { TaskPeriodType, TaskStatus } from "../src/tasks-model.js";
+import { TimeUtils } from "../src/time-utils.js";
 
 const createDao = (query: any) => {
   const release = jest.fn();
@@ -41,6 +42,33 @@ describe("TasksQueueDao", () => {
     );
     expect(release).toHaveBeenCalled();
     jest.useRealTimers();
+  });
+
+  it("uses task timeout to throttle heartbeat updates", async () => {
+    const started = new Date("2026-04-02T10:00:00.000Z");
+    const lastHeartbeat = new Date("2026-04-02T10:00:00.000Z");
+    const now = new Date(lastHeartbeat.getTime() + TimeUtils.minute / 2 + 1);
+    const query: any = jest.fn();
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          status: "in_progress",
+          started,
+          last_heartbeat: lastHeartbeat,
+          timeout: TimeUtils.minute,
+        },
+      ],
+    });
+    query.mockResolvedValueOnce({ rowCount: 1 });
+    const { dao } = createDao(query);
+
+    const updated = await dao.ping(42, started, now);
+
+    expect(updated).toBe(true);
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("set last_heartbeat = $1"),
+      [now, 42, TaskStatus.in_progress, started],
+    );
   });
 
   it("detects stalled tasks from the latest heartbeat when available", async () => {

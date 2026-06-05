@@ -57,20 +57,26 @@ Similarly, when `process(...)` returns successfully, the runtime re-checks liven
 
 ## Throttling
 
-Heartbeat writes are throttled to at most once per minute.
+Heartbeat writes are throttled to at most once per minute. For tasks with
+shorter timeout windows, the throttle is reduced to half of the task timeout.
 
 Throttling exists in two layers:
 
 - in the runtime `TaskContext`, to suppress repeated writes from tight loops
 - in the DAO update path, to protect the database even if callers invoke `ping()` too often
 
-Because of this, calling `ping()` more often than once per minute is safe, but only one heartbeat per minute will usually be persisted.
+Because of this, calling `ping()` more often than the effective throttle is safe,
+but only one heartbeat per throttle window will usually be persisted.
+
+The effective throttle is:
+
+```ts
+Math.min(60_000, task.timeout / 2)
+```
 
 Practical rule:
 
-- choose task `timeout` comfortably larger than the one-minute heartbeat persistence window
-
-If `timeout` is too small relative to heartbeat cadence, the task may still time out between persisted heartbeats even if your code calls `ping()` aggressively.
+- call `ping()` more often than half of the task timeout
 
 ## Ownership and stale attempts
 

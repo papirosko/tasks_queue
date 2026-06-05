@@ -10,7 +10,7 @@ import {
   BackoffType,
   MissedRunStrategy,
   ScheduledTask,
-  TASK_HEARTBEAT_THROTTLE_MS,
+  taskHeartbeatThrottleMs,
   TaskStateSnapshot,
   TaskPeriodType,
   TaskStatus,
@@ -401,10 +401,9 @@ export class TasksQueueDao {
     expectedStarted: Date,
     now: Date = new Date(),
   ): Promise<boolean> {
-    const cutoff = new Date(now.getTime() - TASK_HEARTBEAT_THROTTLE_MS);
     return await this.withClient(async (cl) => {
       const state = await cl.query(
-        `select status, started, last_heartbeat
+        `select status, started, last_heartbeat, timeout
            from tasks_queue
           where id = $1`,
         [taskId],
@@ -424,6 +423,9 @@ export class TasksQueueDao {
 
       const lastHeartbeat = option(current["last_heartbeat"]).map(
         (value) => new Date(value),
+      );
+      const cutoff = new Date(
+        now.getTime() - taskHeartbeatThrottleMs(Number(current["timeout"])),
       );
       if (
         lastHeartbeat

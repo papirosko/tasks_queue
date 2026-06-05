@@ -541,7 +541,7 @@ override async process(payload: any, context: TaskContext): Promise<void> {
 Important behavior:
 
 - stalled detection uses the latest of `started` and `last_heartbeat`
-- heartbeat writes are throttled to at most once per minute
+- heartbeat writes are throttled to at most once per minute, or half of task `timeout` for shorter timeout windows
 - if `ping()` happens after the timeout window already expired, the attempt times out
 - if `process(...)` returns after the timeout window expired, that attempt also times out
 
