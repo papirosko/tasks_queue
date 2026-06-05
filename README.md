@@ -620,6 +620,8 @@ Its maintenance pass covers:
 
 Its metrics sync registers queue/status gauges using sanitized metric names derived from queue names.
 
+The main worker runtime also exposes pool and queue metrics for registered queues, polling activity, busy slots, loop health, and task lifecycle counters. See [docs/runtime-metrics.md](docs/runtime-metrics.md).
+
 ## Operational Notes
 
 - Apply [migration.sql](migration.sql) before starting workers.
@@ -637,5 +639,6 @@ Its metrics sync registers queue/status gauges using sanitized metric names deri
 - [docs/multi-steps-tasks.md](docs/multi-steps-tasks.md): detailed guide for `MultiStepTask`, `SequentialTask`, child completion, failure handling, and payload shape
 - [docs/managed-workflow-task.md](docs/managed-workflow-task.md): detailed guide for `ManagedWorkflowTask`, full child-task control model, and orchestrator examples
 - [docs/heartbeat.md](docs/heartbeat.md): detailed guide for heartbeat behavior and stalled detection
+- [docs/runtime-metrics.md](docs/runtime-metrics.md): runtime metrics for pool composition, polling health, slot usage, and queue lifecycle counters
 - [docs/nest-worker-decorator.md](docs/nest-worker-decorator.md): declarative NestJS worker registration using `@Worker(...)`
 - [docs/nest-scheduled-task-decorator.md](docs/nest-scheduled-task-decorator.md): declarative periodic task provisioning via `@ScheduledTask(...)`
