@@ -307,148 +307,125 @@ export type UpdatePendingPeriodicScheduleDetails =
  * Plain JSON representation of {@link TaskDto} intended for HTTP APIs and Swagger schemas.
  */
 export class TaskView {
-  /**
-   * Persistent task id.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Persistent task id." })
   id!: number;
 
-  /**
-   * Parent task id for child tasks, if any.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description: "Parent task id for child tasks, if any.",
+  })
   parentId?: number;
 
-  /**
-   * Queue name.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Queue name." })
   queue!: string;
 
-  /**
-   * Task creation time as Unix milliseconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Task creation time as Unix milliseconds." })
   created!: number;
 
-  /**
-   * Original schedule anchor as Unix milliseconds.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    description: "Original schedule anchor as Unix milliseconds.",
+  })
   initialStart!: number;
 
-  /**
-   * Current attempt start time as Unix milliseconds, if the task is active.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description:
+      "Current attempt start time as Unix milliseconds, if the task is active.",
+  })
   started?: number;
 
-  /**
-   * Last heartbeat time as Unix milliseconds, if the task is active and has reported heartbeat.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description:
+      "Last heartbeat time as Unix milliseconds, if the task is active and has reported heartbeat.",
+  })
   lastHeartbeat?: number;
 
-  /**
-   * Finish or retry-transition time as Unix milliseconds, if present.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description:
+      "Finish or retry-transition time as Unix milliseconds, if present.",
+  })
   finished?: number;
 
-  /**
-   * Current task status.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    enum: TaskStatus,
+    enumName: "TaskStatus",
+    description: "Current task status.",
+  })
   status!: TaskStatus;
 
-  /**
-   * Periodic missed-run strategy.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    enum: MissedRunStrategy,
+    enumName: "MissedRunStrategy",
+    description: "Periodic missed-run strategy.",
+  })
   missedRunStrategy!: MissedRunStrategy;
 
-  /**
-   * Queue priority.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Queue priority." })
   priority!: number;
 
-  /**
-   * Last persisted error message, if any.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description: "Last persisted error message, if any.",
+  })
   error?: string;
 
-  /**
-   * Base retry backoff in milliseconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Base retry backoff in milliseconds." })
   backoff!: number;
 
-  /**
-   * Retry backoff formula.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    enum: BackoffType,
+    enumName: "BackoffType",
+    description: "Retry backoff formula.",
+  })
   backoffType!: BackoffType;
 
-  /**
-   * Attempt timeout in milliseconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Attempt timeout in milliseconds." })
   timeout!: number;
 
-  /**
-   * Unique periodic task name, if periodic.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description: "Unique periodic task name, if periodic.",
+  })
   name?: string;
 
-  /**
-   * Next eligible start time as Unix milliseconds, if any.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    description: "Next eligible start time as Unix milliseconds, if any.",
+  })
   startAfter?: number;
 
-  /**
-   * Repeat interval in milliseconds for interval-based periodic tasks.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    description:
+      "Repeat interval in milliseconds for interval-based periodic tasks.",
+  })
   repeatInterval?: number;
 
-  /**
-   * Cron expression for cron-based periodic tasks.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    description: "Cron expression for cron-based periodic tasks.",
+  })
   cronExpression?: string;
 
-  /**
-   * Periodic scheduling mode, if any.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    enum: TaskPeriodType,
+    enumName: "TaskPeriodType",
+    description: "Periodic scheduling mode, if any.",
+  })
   repeatType?: TaskPeriodType;
 
-  /**
-   * Maximum attempts allowed.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Maximum attempts allowed." })
   maxAttempts!: number;
 
-  /**
-   * Persisted attempt counter.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Persisted attempt counter." })
   attempt!: number;
 
-  /**
-   * Persisted worker input and runtime state.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Persisted worker input and runtime state." })
   payload: any;
 
-  /**
-   * Persisted final result, if any.
-   */
-  @ApiProperty({ required: false })
+  @ApiProperty({
+    required: false,
+    description: "Persisted final result, if any.",
+  })
   result?: any;
 
   /**
@@ -491,16 +468,16 @@ export class TaskView {
  * Plain JSON representation of {@link TasksResult}.
  */
 export class TasksResultView {
-  /**
-   * Page items converted to plain task views.
-   */
-  @ApiProperty({ type: TaskView, isArray: true })
+  @ApiProperty({
+    type: TaskView,
+    isArray: true,
+    description: "Page items converted to plain task views.",
+  })
   items!: TaskView[];
 
-  /**
-   * Total number of matching rows before pagination.
-   */
-  @ApiProperty()
+  @ApiProperty({
+    description: "Total number of matching rows before pagination.",
+  })
   total!: number;
 }
 
@@ -563,40 +540,22 @@ export class TasksCount {
  * Plain JSON view of {@link QueueStat}.
  */
 export class QueueStatView {
-  /**
-   * Queue name these percentiles belong to.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Queue name these percentiles belong to." })
   queueName!: string;
 
-  /**
-   * 50th percentile in seconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "50th percentile in seconds." })
   p50!: number;
 
-  /**
-   * 75th percentile in seconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "75th percentile in seconds." })
   p75!: number;
 
-  /**
-   * 95th percentile in seconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "95th percentile in seconds." })
   p95!: number;
 
-  /**
-   * 99th percentile in seconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "99th percentile in seconds." })
   p99!: number;
 
-  /**
-   * 99.9th percentile in seconds.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "99.9th percentile in seconds." })
   p999!: number;
 
   /**
@@ -621,22 +580,20 @@ export class QueueStatView {
  * Plain JSON view of {@link TasksCount}.
  */
 export class TasksCountView {
-  /**
-   * Queue name.
-   */
-  @ApiProperty()
+  @ApiProperty({ description: "Queue name." })
   queueName!: string;
 
-  /**
-   * Task status represented by this count.
-   */
-  @ApiProperty({ enum: TaskStatus, enumName: "TaskStatus" })
+  @ApiProperty({
+    enum: TaskStatus,
+    enumName: "TaskStatus",
+    description: "Task status represented by this count.",
+  })
   status!: TaskStatus;
 
-  /**
-   * Number of tasks in this queue/status bucket.
-   */
-  @ApiProperty({ type: "integer" })
+  @ApiProperty({
+    type: "integer",
+    description: "Number of tasks in this queue/status bucket.",
+  })
   count!: number;
 
   /**
@@ -658,21 +615,24 @@ export class TasksCountView {
  * Combined queue statistics response shape used by HTTP APIs.
  */
 export class QueuesStat {
-  /**
-   * Queue wait-time percentile stats.
-   */
-  @ApiProperty({ type: QueueStatView, isArray: true })
+  @ApiProperty({
+    type: QueueStatView,
+    isArray: true,
+    description: "Queue wait-time percentile stats.",
+  })
   waitTime!: QueueStatView[];
 
-  /**
-   * Queue work-time percentile stats.
-   */
-  @ApiProperty({ type: QueueStatView, isArray: true })
+  @ApiProperty({
+    type: QueueStatView,
+    isArray: true,
+    description: "Queue work-time percentile stats.",
+  })
   workTime!: QueueStatView[];
 
-  /**
-   * Queue/status task counts.
-   */
-  @ApiProperty({ type: TasksCountView, isArray: true })
+  @ApiProperty({
+    type: TasksCountView,
+    isArray: true,
+    description: "Queue/status task counts.",
+  })
   tasksCount!: TasksCountView[];
 }
