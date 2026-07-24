@@ -52,6 +52,11 @@ export class TasksQueueModule
       options.imports === undefined
         ? [DiscoveryModule]
         : [...options.imports, DiscoveryModule];
+    const registrarProviders = option(
+      options.runScheduledTasksRegistrar,
+    ).forall(identity)
+      ? [ScheduledTasksRegistrar]
+      : [];
 
     return {
       module: TasksQueueModule,
@@ -86,7 +91,7 @@ export class TasksQueueModule
             ),
         },
         WorkersDiscoveryRegistrar,
-        ScheduledTasksRegistrar,
+        ...registrarProviders,
       ],
       exports: [TasksPoolsService, ManageTasksQueueService],
     };

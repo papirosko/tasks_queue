@@ -107,6 +107,12 @@ On application bootstrap, it provisions periodic definitions via:
 
 This ordering gives all modules time to initialize before schedule upserts run.
 
+If you need to disable this behavior entirely for a module instance (for
+example, in tests), pass `runScheduledTasksRegistrar: false` to
+`TasksQueueModule.forRootAsync(...)`. In that mode, the NestJS registrar is not
+added, so `@ScheduledTask(...)` methods are neither auto-registered as workers
+nor provisioned on bootstrap.
+
 Calls map to:
 - `scheduleAtCron(...)`
 - `scheduleAtFixedRate(...)`

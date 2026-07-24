@@ -222,6 +222,10 @@ import {
 export class AppModule {}
 ```
 
+To disable auto-discovery of `@ScheduledTask(...)` methods for a module
+instance, pass `runScheduledTasksRegistrar: false` to
+`TasksQueueModule.forRootAsync(...)`. This is especially useful in tests.
+
 ### Register workers in bootstrap-aware providers
 
 Each worker should register itself into a queue during bootstrap:
@@ -303,6 +307,7 @@ Supported schedule forms:
 Important notes:
 
 - `@ScheduledTask(...)` registers the decorated method as the queue worker and provisions periodic rows
+- set `runScheduledTasksRegistrar: false` in `TasksQueueModule.forRootAsync(...)` to disable this auto-registration entirely for a module instance
 - `pool` is optional and defaults to `default`
 - periodic names are deduplicated by `name`
 - when `replaceExisting` is omitted or `false`, name conflicts are ignored

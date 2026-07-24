@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.5
+
+### Added
+- Added `runScheduledTasksRegistrar` to `TasksQueueModule.forRootAsync(...)` so NestJS `@ScheduledTask(...)` auto-discovery and bootstrap provisioning can be disabled per module instance.
+- Added unit coverage for default and disabled scheduled-task registrar wiring.
+
+### Changed
+- Updated README and NestJS scheduled-task documentation to describe disabling `ScheduledTasksRegistrar`, with test-focused guidance.
+
 ## 1.9.1
 
 ### Added

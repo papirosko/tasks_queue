@@ -55,6 +55,12 @@ export interface TasksQueueOptionsFactory {
 export interface TasksQueueAsyncOptions
   extends Pick<ModuleMetadata, "imports"> {
   /**
+   * Whether to enable the NestJS registrar for `@ScheduledTask(...)` methods.
+   *
+   * When omitted, the module enables it by default.
+   */
+  runScheduledTasksRegistrar?: boolean;
+  /**
    * Reuse an existing provider that implements {@link TasksQueueOptionsFactory}.
    */
   useExisting?: Type<TasksQueueOptionsFactory>;
