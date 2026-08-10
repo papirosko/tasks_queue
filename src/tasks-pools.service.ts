@@ -21,6 +21,7 @@ import {
 import { TasksWorker } from "./tasks-worker.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { Clock, SystemClock } from "./clock.js";
+import { TasksRuntimeStateService } from "./tasks-runtime-state.service.js";
 
 /**
  * Default pool name used by {@link TasksPoolsService.registerWorker} when no
@@ -54,15 +55,17 @@ export class TasksPoolsService {
       },
     ],
     private readonly clock: Clock = new SystemClock(),
+    readonly runtimeStateService: TasksRuntimeStateService = new TasksRuntimeStateService(
+      clock,
+    ),
   ) {
     const poolsCollection = Collection.from(pools);
     const poolNames = poolsCollection.map((p) => p.name).toSet;
     if (poolsCollection.size !== poolNames.size) {
       throw new Error("Duplicate pool names detected");
     }
-    this.pools = poolsCollection.toMap((p) => [
-      p.name,
-      new TasksQueueService(
+    this.pools = poolsCollection.toMap((p) => {
+      const poolService = new TasksQueueService(
         dao,
         manageTasksQueueService,
         {
@@ -73,8 +76,15 @@ export class TasksPoolsService {
         },
         this.clock,
         p.name,
-      ),
-    ]);
+        this.runtimeStateService,
+      );
+      this.runtimeStateService.registerPool(p.name, p.loopInterval, {
+        getStarted: () => poolService.isStarted(),
+        getPipelineState: () => poolService.getPipelineState(),
+        getRegisteredWorkers: () => poolService.getRegisteredWorkers(),
+      });
+      return [p.name, poolService];
+    });
     this.auxiliaryWorker = runAuxiliaryWorker
       ? some(new TasksAuxiliaryWorker(dao, manageTasksQueueService, this.clock))
       : none;

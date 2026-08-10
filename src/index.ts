@@ -6,6 +6,9 @@ export * from "./tasks-pools.service.js";
 export * from "./tasks-queue.module.js";
 export * from "./tasks-queue.service.js";
 export * from "./tasks-queue-async-options.js";
+export * from "./tasks-pipeline.js";
+export * from "./tasks-runtime.model.js";
+export * from "./tasks-runtime-state.service.js";
 export * from "./tasks-worker.js";
 export * from "./worker.decorator.js";
 export {

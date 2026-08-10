@@ -12,6 +12,9 @@ import {
 import { TasksWorker } from "./tasks-worker.js";
 import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { Clock, SystemClock } from "./clock.js";
+import { TasksRuntimeStateService } from "./tasks-runtime-state.service.js";
+import { TasksRuntimeWorkerDetails } from "./tasks-runtime.model.js";
+import { TasksPipelineState } from "./tasks-pipeline.js";
 
 const logger = log4js.getLogger("TasksQueueService");
 
@@ -49,6 +52,7 @@ export interface TasksQueueConfig {
 export class TasksQueueService {
   private readonly worker: TasksQueueWorker;
   private readonly auxiliaryWorker: Option<TasksAuxiliaryWorker>;
+  private started = false;
 
   constructor(
     private readonly tasksQueueDao: TasksQueueDao,
@@ -56,6 +60,7 @@ export class TasksQueueService {
     config: TasksQueueConfig,
     private readonly clock: Clock = new SystemClock(),
     private readonly poolName: string = "default",
+    runtimeStateService?: TasksRuntimeStateService,
   ) {
     this.worker = new TasksQueueWorker(
       this.tasksQueueDao,
@@ -64,6 +69,7 @@ export class TasksQueueService {
       this.clock,
       config.queueNotifier,
       this.poolName,
+      runtimeStateService,
     );
     if (config.runAuxiliaryWorker) {
       this.auxiliaryWorker = some(
@@ -198,9 +204,11 @@ export class TasksQueueService {
    */
   start() {
     try {
+      this.started = true;
       this.worker.start();
       this.auxiliaryWorker.foreach((w) => w.start());
     } catch (e) {
+      this.started = false;
       logger.warn("Failed to process stalled tasks", e);
     }
   }
@@ -214,7 +222,20 @@ export class TasksQueueService {
    * @returns resolved promise once the service has stopped
    */
   async stop() {
+    this.started = false;
     this.auxiliaryWorker.foreach((w) => w.stop());
     await this.worker.stop();
+  }
+
+  isStarted(): boolean {
+    return this.started;
+  }
+
+  getPipelineState(): TasksPipelineState {
+    return this.worker.getPipelineState();
+  }
+
+  getRegisteredWorkers(): TasksRuntimeWorkerDetails[] {
+    return this.worker.getRegisteredWorkers();
   }
 }

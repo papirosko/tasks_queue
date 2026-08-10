@@ -1,5 +1,5 @@
 import { afterEach, jest } from "@jest/globals";
-import { mutable, none, some } from "scats";
+import { mutable, none, option, some } from "scats";
 import {
   TASK_HEARTBEAT_THROTTLE_MS,
   TaskContext,
@@ -8,6 +8,7 @@ import {
   TaskStatus,
 } from "../src/tasks-model.js";
 import { TasksQueueWorker } from "../src/tasks-queue.worker.js";
+import { TasksRuntimeStateService } from "../src/tasks-runtime-state.service.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import type { ScheduledTask } from "../src/tasks-model.js";
 import { Clock } from "../src/clock.js";
@@ -546,4 +547,74 @@ describe("TasksQueueWorker", () => {
     expect(taskWorker.completed).not.toHaveBeenCalled();
     expect(taskWorker.failed).not.toHaveBeenCalled();
   });
+
+  it("tracks active runtime tasks while processing is in flight", async () => {
+    const deferred = createDeferred();
+    const dao = createDao();
+    const runtimeStateService = new TasksRuntimeStateService();
+    const worker = new TasksQueueWorker(
+      dao as any,
+      1,
+      10,
+      undefined,
+      undefined,
+      "runtime",
+      runtimeStateService,
+    );
+    runtimeStateService.registerPool("runtime", 10, {
+      getStarted: () => true,
+      getPipelineState: () => worker.getPipelineState(),
+      getRegisteredWorkers: () => worker.getRegisteredWorkers(),
+    });
+    const taskWorker = new TestWorker();
+    taskWorker.process.mockImplementation(async () => {
+      await deferred.promise;
+    });
+    worker.registerWorker("q", taskWorker);
+    const task = createTask({
+      id: 42,
+      started: new Date("2026-08-10T12:00:00.000Z"),
+      timeout: 60_000,
+      currentAttempt: 2,
+      maxAttempts: 5,
+    });
+
+    const processing = (worker as any).processNextTask(task);
+    await Promise.resolve();
+
+    const snapshotWhileRunning =
+      runtimeStateService.getPoolSnapshot("runtime").get;
+    expect(snapshotWhileRunning.activeTasks).toEqual([
+      expect.objectContaining({
+        taskId: 42,
+        queueName: "q",
+        workerClass: "TestWorker",
+        startedAt: task.started.getTime(),
+        timeoutMs: 60_000,
+        currentAttempt: 2,
+        maxAttempts: 5,
+      }),
+    ]);
+
+    deferred.resolve();
+    await processing;
+
+    const snapshotAfterFinish =
+      runtimeStateService.getPoolSnapshot("runtime").get;
+    expect(snapshotAfterFinish.activeTasks).toEqual([]);
+  });
 });
+
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolveFn: (() => void) | undefined;
+  return {
+    promise: new Promise<void>((resolve) => {
+      resolveFn = resolve;
+    }),
+    resolve: () => {
+      option(resolveFn).foreach((resolve) => {
+        resolve();
+      });
+    },
+  };
+}

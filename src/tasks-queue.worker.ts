@@ -2,7 +2,6 @@ import { Collection, mutable, none, option, Option, some, Try } from "scats";
 import { TasksQueueDao } from "./tasks-queue.dao.js";
 import log4js from "log4js";
 import { MetricsService } from "application-metrics";
-import { TasksPipeline } from "./tasks-pipeline.js";
 import {
   ScheduledTask,
   SpawnChildTaskDetails,
@@ -17,6 +16,9 @@ import { TasksWorker } from "./tasks-worker.js";
 import { TimeUtils } from "./time-utils.js";
 import { Clock, SystemClock } from "./clock.js";
 import { poolMetricName, queueMetricName } from "./metrics-utils.js";
+import { TasksRuntimeStateService } from "./tasks-runtime-state.service.js";
+import { TasksRuntimeWorkerDetails } from "./tasks-runtime.model.js";
+import { TasksPipeline, TasksPipelineState } from "./tasks-pipeline.js";
 
 const logger = log4js.getLogger("TasksQueueWorker");
 
@@ -137,6 +139,7 @@ export class TasksQueueWorker {
     private readonly clock: Clock = new SystemClock(),
     queueNotifier?: (queueName: string) => void,
     private readonly poolName: string = "default",
+    private readonly runtimeStateService?: TasksRuntimeStateService,
   ) {
     this.queueNotifier = option(queueNotifier).getOrElse(
       () => (queueName) => this.tasksScheduled(queueName),
@@ -180,6 +183,20 @@ export class TasksQueueWorker {
     }
     this.workers.put(queueName, worker);
     this.updatePoolQueuesLabel();
+  }
+
+  getPipelineState(): TasksPipelineState {
+    return this.pipeline.getState();
+  }
+
+  getRegisteredWorkers(): TasksRuntimeWorkerDetails[] {
+    return Collection.from(this.workers.entries.toArray)
+      .map(([queueName, worker]) => ({
+        queueName,
+        workerClass: this.workerClassName(worker),
+      }))
+      .sort((left, right) => left.queueName.localeCompare(right.queueName))
+      .toArray;
   }
 
   tasksScheduled(queueName: string): void {
@@ -293,6 +310,10 @@ export class TasksQueueWorker {
         MetricsService.counter(
           queueMetricName(task.queue, "task_started_total"),
         ).inc();
+        const workerClass = this.workerClassName(worker);
+        option(this.runtimeStateService).foreach((runtimeStateService) => {
+          runtimeStateService.taskStarted(this.poolName, task, workerClass);
+        });
         const context = new RuntimeTaskContext(
           this.tasksQueueDao,
           task.id,
@@ -367,6 +388,10 @@ export class TasksQueueWorker {
             `Failed to process task (id=${task.id}) in queue=${task.queue}`,
             e,
           );
+        } finally {
+          option(this.runtimeStateService).foreach((runtimeStateService) => {
+            runtimeStateService.taskFinished(this.poolName, task.id);
+          });
         }
       },
       none: async () => {
@@ -379,5 +404,13 @@ export class TasksQueueWorker {
         );
       },
     });
+  }
+
+  private workerClassName(worker: TasksWorker): string {
+    return option(worker.constructor)
+      .flatMap((constructor) => option(constructor.name))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .getOrElseValue("AnonymousTasksWorker");
   }
 }

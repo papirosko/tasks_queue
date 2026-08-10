@@ -20,6 +20,7 @@ import { ManageTasksQueueService } from "./manage-tasks-queue.service.js";
 import { identity, option } from "scats";
 import { WorkersDiscoveryRegistrar } from "./workers-discovery.registrar.js";
 import { ScheduledTasksRegistrar } from "./scheduled-tasks.registrar.js";
+import { TasksRuntimeStateService } from "./tasks-runtime-state.service.js";
 
 @Module({})
 /**
@@ -40,8 +41,9 @@ export class TasksQueueModule
    * Create a dynamically configured queue module.
    *
    * The resulting module exports {@link TasksPoolsService} for scheduling and
-   * worker registration, and {@link ManageTasksQueueService} for operational
-   * management queries and mutations.
+   * worker registration, {@link ManageTasksQueueService} for operational
+   * management queries and mutations, and {@link TasksRuntimeStateService} for
+   * live runtime diagnostics.
    *
    * @param options async configuration strategy
    * @returns configured NestJS dynamic module
@@ -76,24 +78,40 @@ export class TasksQueueModule
             new ManageTasksQueueService(opts.db),
         },
         {
+          provide: TasksRuntimeStateService,
+          useFactory: () => new TasksRuntimeStateService(),
+        },
+        {
           provide: TasksPoolsService,
-          inject: [TasksQueueDao, ManageTasksQueueService, TASKS_QUEUE_OPTIONS],
+          inject: [
+            TasksQueueDao,
+            ManageTasksQueueService,
+            TASKS_QUEUE_OPTIONS,
+            TasksRuntimeStateService,
+          ],
           useFactory: (
             dao: TasksQueueDao,
             manageService: ManageTasksQueueService,
             opts: TasksQueueModuleOptions,
+            runtimeStateService: TasksRuntimeStateService,
           ) =>
             new TasksPoolsService(
               dao,
               manageService,
               option(opts.runAuxiliaryWorker).forall(identity),
               opts.pools,
+              undefined,
+              runtimeStateService,
             ),
         },
         WorkersDiscoveryRegistrar,
         ...registrarProviders,
       ],
-      exports: [TasksPoolsService, ManageTasksQueueService],
+      exports: [
+        TasksPoolsService,
+        ManageTasksQueueService,
+        TasksRuntimeStateService,
+      ],
     };
   }
 

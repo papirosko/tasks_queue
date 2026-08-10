@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, jest } from "@jest/globals";
 import { TasksPoolsService, DEFAULT_POOL } from "../src/tasks-pools.service.js";
+import { TasksRuntimeStateService } from "../src/tasks-runtime-state.service.js";
 import { TasksWorker } from "../src/tasks-worker.js";
 import { none, some } from "scats";
 import { TaskPeriodType } from "../src/tasks-model.js";
@@ -150,5 +151,66 @@ describe("TasksPoolsService", () => {
     await service.stop(30000);
 
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("returns runtime snapshot with pools and registered workers", () => {
+    const dao = {
+      schedule: jest.fn(async () => some(1)),
+      schedulePeriodic: jest.fn(async () => some(2)),
+      nextPending: jest.fn(async () => none),
+      peekNextStartAfter: jest.fn(async () => none),
+    };
+    const manageService = {} as any;
+    const runtimeStateService = new TasksRuntimeStateService();
+    const service = new TasksPoolsService(
+      dao as any,
+      manageService,
+      false,
+      [
+        { name: DEFAULT_POOL, concurrency: 2, loopInterval: 10 },
+        { name: "preview", concurrency: 1, loopInterval: 20 },
+      ],
+      undefined,
+      runtimeStateService,
+    );
+
+    service.registerWorker("email", new TestWorker(), DEFAULT_POOL);
+    service.registerWorker("generate-preview", new TestWorker(), "preview");
+    service.start();
+
+    const snapshot = runtimeStateService.getSnapshot();
+
+    expect(snapshot.queueToPool).toEqual({
+      email: DEFAULT_POOL,
+      "generate-preview": "preview",
+    });
+    expect(snapshot.pools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: DEFAULT_POOL,
+          started: true,
+          registeredQueues: ["email"],
+          slots: expect.objectContaining({ total: 2, busy: 0, idle: 2 }),
+          workers: [
+            expect.objectContaining({
+              queueName: "email",
+              workerClass: "TestWorker",
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          name: "preview",
+          started: true,
+          registeredQueues: ["generate-preview"],
+          slots: expect.objectContaining({ total: 1, busy: 0, idle: 1 }),
+          workers: [
+            expect.objectContaining({
+              queueName: "generate-preview",
+              workerClass: "TestWorker",
+            }),
+          ],
+        }),
+      ]),
+    );
   });
 });
