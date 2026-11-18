@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.7
+
+### Added
+- Added `AbortSignal` to `TaskContext` and abort it when the current attempt times out, while preserving the existing database timeout transition.
+
 ## 1.9.5
 
 ### Added

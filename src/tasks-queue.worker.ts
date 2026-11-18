@@ -61,11 +61,14 @@ class RuntimeTaskContext implements TaskContext {
       clearTimeout(this.timeoutTimer);
     }
 
-    this.timeoutTimer = setTimeout(() => {
-      this.timeoutTimer = null;
-      void this.checkTimeout();
-    }, Math.min(Math.max(1, delay), 2_147_483_647));
-    this.timeoutTimer.unref?.();
+    this.timeoutTimer = setTimeout(
+      () => {
+        this.timeoutTimer = null;
+        void this.checkTimeout();
+      },
+      Math.min(Math.max(1, delay), 2_147_483_647),
+    );
+    this.timeoutTimer.unref();
   }
 
   private async checkTimeout(): Promise<void> {
