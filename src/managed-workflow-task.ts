@@ -101,6 +101,7 @@ export abstract class ManagedWorkflowTask<
     let resultSubmitted = false;
 
     const managedContext: TaskContext = {
+      signal: context.signal,
       taskId: context.taskId,
       currentAttempt: context.currentAttempt,
       maxAttempts: context.maxAttempts,

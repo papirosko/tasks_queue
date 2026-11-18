@@ -128,6 +128,7 @@ class AutoContinuingSequentialTask extends SequentialTask<
 }
 
 const createContext = (): TaskContext => ({
+  signal: new AbortController().signal,
   taskId: 1,
   currentAttempt: 1,
   maxAttempts: 3,

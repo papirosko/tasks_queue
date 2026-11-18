@@ -43,6 +43,13 @@ Short tasks usually do not need heartbeat support.
 
 ## Runtime behavior
 
+Each processing attempt exposes `context.signal`. When the attempt timeout
+expires, the runtime applies the existing timeout transition in the database
+and aborts this signal with the resulting `TaskTimedOutError`. Pass the signal
+to APIs that support `AbortSignal` to stop their work promptly. Cancellation is
+cooperative: operations that ignore the signal may continue running, while the
+queue's ownership checks still prevent stale attempts from changing task state.
+
 `context.ping()` does more than "best effort heartbeat".
 
 It first verifies that the current attempt is still healthy relative to the runtime clock. If the timeout window has already elapsed, `ping()` throws `TaskTimedOutError` and applies the same timeout transition that auxiliary stalled detection would apply.

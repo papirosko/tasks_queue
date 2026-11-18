@@ -439,6 +439,12 @@ export class TaskTimedOutError extends Error {
  */
 export interface TaskContext {
   /**
+   * Abort signal for the current processing attempt. The runtime aborts it when
+   * the attempt times out. Pass it to operations that support `AbortSignal` so
+   * they can stop promptly; cancellation remains cooperative.
+   */
+  signal: AbortSignal;
+  /**
    * Current task id in persistent storage.
    */
   taskId: number;

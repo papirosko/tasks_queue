@@ -23,6 +23,9 @@ import { TasksPipeline, TasksPipelineState } from "./tasks-pipeline.js";
 const logger = log4js.getLogger("TasksQueueWorker");
 
 class RuntimeTaskContext implements TaskContext {
+  private readonly abortController = new AbortController();
+  readonly signal = this.abortController.signal;
+  private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private childTask: Option<SpawnChildTaskDetails> = none;
   private _nextPayload: Option<object> = none;
   private _submittedResult: Option<object> = none;
@@ -40,6 +43,43 @@ class RuntimeTaskContext implements TaskContext {
     private readonly clock: Clock,
   ) {
     this.attemptStartedAt = new Date(startedAt);
+    this.scheduleTimeoutCheck(this.timeout + 1);
+  }
+
+  dispose(): void {
+    if (this.timeoutTimer !== null) {
+      clearTimeout(this.timeoutTimer);
+      this.timeoutTimer = null;
+    }
+  }
+
+  private scheduleTimeoutCheck(delay: number): void {
+    if (this.signal.aborted) {
+      return;
+    }
+    if (this.timeoutTimer !== null) {
+      clearTimeout(this.timeoutTimer);
+    }
+
+    this.timeoutTimer = setTimeout(() => {
+      this.timeoutTimer = null;
+      void this.checkTimeout();
+    }, Math.min(Math.max(1, delay), 2_147_483_647));
+    this.timeoutTimer.unref?.();
+  }
+
+  private async checkTimeout(): Promise<void> {
+    try {
+      await this.ensureNotStalled();
+      this.scheduleTimeoutCheck(this.timeout + 1);
+    } catch (error) {
+      if (error instanceof TaskTimedOutError) {
+        this.abortController.abort(error);
+        return;
+      }
+      logger.warn(`Failed to check timeout for task ${this.taskId}`, error);
+      this.scheduleTimeoutCheck(1000);
+    }
   }
 
   async ensureNotStalled(): Promise<void> {
@@ -59,7 +99,10 @@ class RuntimeTaskContext implements TaskContext {
         now,
       )
     ).getOrElseValue(TaskStatus.error);
-    throw new TaskTimedOutError(this.taskId, finalStatus);
+    const timeoutError = new TaskTimedOutError(this.taskId, finalStatus);
+    this.abortController.abort(timeoutError);
+    this.dispose();
+    throw timeoutError;
   }
 
   async ping(): Promise<void> {
@@ -84,6 +127,7 @@ class RuntimeTaskContext implements TaskContext {
       throw new Error(`Task ${this.taskId} execution is no longer active`);
     }
     this.lastHeartbeatAt = some(now);
+    this.scheduleTimeoutCheck(this.timeout + 1);
   }
 
   spawnChild(task: SpawnChildTaskDetails): void {
@@ -258,49 +302,55 @@ export class TasksQueueWorker {
     context: RuntimeTaskContext,
   ): Promise<boolean> {
     await context.ensureNotStalled();
-    return await context.spawnedChild.match({
-      some: async (spawnedChild) => {
-        option(task.repeatType).foreach(() => {
-          throw new Error(`Periodic task ${task.id} cannot spawn child tasks`);
-        });
-        const childTaskId =
-          await this.tasksQueueDao.blockParentAndScheduleChild(
-            task.id,
-            spawnedChild,
-            context.payloadToPersist(task.payload),
-            task.started,
-            this.clock.now(),
-          );
-        childTaskId.foreach(() => this.queueNotifier(spawnedChild.queue));
-        return childTaskId.isDefined;
-      },
-      none: async () => {
-        return await option(task.repeatType).match({
-          some: async () => {
-            return await this.tasksQueueDao.rescheduleIfPeriodic(
+    try {
+      return await context.spawnedChild.match({
+        some: async (spawnedChild) => {
+          option(task.repeatType).foreach(() => {
+            throw new Error(
+              `Periodic task ${task.id} cannot spawn child tasks`,
+            );
+          });
+          const childTaskId =
+            await this.tasksQueueDao.blockParentAndScheduleChild(
               task.id,
+              spawnedChild,
               context.payloadToPersist(task.payload),
-              context.submittedResult.orUndefined,
               task.started,
               this.clock.now(),
             );
-          },
-          none: async () => {
-            const finished = await this.tasksQueueDao.finish(
-              task.id,
-              context.payloadToPersist(task.payload),
-              context.submittedResult.orUndefined,
-              task.started,
-              this.clock.now(),
-            );
-            if (finished) {
-              await this.wakeBlockedParent(task.id);
-            }
-            return finished;
-          },
-        });
-      },
-    });
+          childTaskId.foreach(() => this.queueNotifier(spawnedChild.queue));
+          return childTaskId.isDefined;
+        },
+        none: async () => {
+          return await option(task.repeatType).match({
+            some: async () => {
+              return await this.tasksQueueDao.rescheduleIfPeriodic(
+                task.id,
+                context.payloadToPersist(task.payload),
+                context.submittedResult.orUndefined,
+                task.started,
+                this.clock.now(),
+              );
+            },
+            none: async () => {
+              const finished = await this.tasksQueueDao.finish(
+                task.id,
+                context.payloadToPersist(task.payload),
+                context.submittedResult.orUndefined,
+                task.started,
+                this.clock.now(),
+              );
+              if (finished) {
+                await this.wakeBlockedParent(task.id);
+              }
+              return finished;
+            },
+          });
+        },
+      });
+    } finally {
+      context.dispose();
+    }
   }
 
   private async processNextTask(task: ScheduledTask): Promise<void> {
@@ -389,6 +439,7 @@ export class TasksQueueWorker {
             e,
           );
         } finally {
+          context.dispose();
           option(this.runtimeStateService).foreach((runtimeStateService) => {
             runtimeStateService.taskFinished(this.poolName, task.id);
           });

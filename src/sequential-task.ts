@@ -212,6 +212,7 @@ export abstract class SequentialTask<
     },
   ): TaskContext {
     return {
+      signal: context.signal,
       taskId: context.taskId,
       currentAttempt: context.currentAttempt,
       maxAttempts: context.maxAttempts,
@@ -243,6 +244,7 @@ export abstract class SequentialTask<
 
   private clearedResolvedChildContext(context: TaskContext): TaskContext {
     return {
+      signal: context.signal,
       taskId: context.taskId,
       currentAttempt: context.currentAttempt,
       maxAttempts: context.maxAttempts,
